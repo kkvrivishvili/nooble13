@@ -30,7 +30,7 @@ services:
 
   qdrant_database:
     container_name: qdrant_database
-    image: qdrant/qdrant:v1.7.4
+    image: qdrant/qdrant:v1.16.2
     networks:
       - nooble-network
     ports:

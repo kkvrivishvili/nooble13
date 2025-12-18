@@ -165,6 +165,7 @@ class SimpleHandler(BaseHandler):
                 # 2. Buscar en vector store
                 search_results = await self.qdrant_client.search(
                     query_embedding=query_embedding,
+                    query_text=user_message,
                     collection_ids=rag_config.collection_ids,
                     top_k=rag_config.top_k,
                     similarity_threshold=rag_config.similarity_threshold,

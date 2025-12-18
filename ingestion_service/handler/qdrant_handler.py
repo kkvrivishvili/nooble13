@@ -9,8 +9,11 @@ import uuid
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct,
-    Filter, FieldCondition, MatchValue, MatchAny
+    Filter, FieldCondition, MatchValue, MatchAny,
+    SparseVectorParams, Modifier, SparseVector
 )
+
+from fastembed import SparseTextEmbedding
 
 from common.handlers.base_handler import BaseHandler
 from ..models import ChunkModel
@@ -30,6 +33,10 @@ class QdrantHandler(BaseHandler):
         # IMPORTANTE: Una sola collection física para todos los tenants
         self.collection_name = "nooble8_vectors"
         self.vector_size = 1536  # Default OpenAI
+        
+        # Inicializar modelo BM25 ligero
+        self._logger.info("Initializing SparseTextEmbedding (BM25)...")
+        self.sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm25")
     
     async def initialize(self):
         """Asegura que la collection existe con índices apropiados."""
@@ -38,10 +45,18 @@ class QdrantHandler(BaseHandler):
             if not any(c.name == self.collection_name for c in collections.collections):
                 await self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=self.vector_size,
-                        distance=Distance.COSINE
-                    )
+                    vectors_config={
+                        "dense": VectorParams(
+                            size=self.vector_size,
+                            distance=Distance.COSINE
+                        )
+                    },
+                    # Configuración para BM25 Nativo
+                    sparse_vectors_config={
+                        "bm25": SparseVectorParams(
+                            modifier=Modifier.IDF
+                        )
+                    }
                 )
                 
                 # Crear índices para filtrado eficiente (multitenancy)
@@ -109,6 +124,24 @@ class QdrantHandler(BaseHandler):
         points = []
         failed_chunks = []
         
+        # Pre-calcular sparse vectors (es rápido en CPU)
+        try:
+            texts = [c.content for c in chunks if c.embedding]  # Solo procesar si tiene dense embedding
+            if texts:
+                self._logger.info(f"Generating sparse embeddings for {len(texts)} chunks...")
+                # embed devuelve un generador, convertimos a lista
+                sparse_vectors_gen = self.sparse_embedding_model.embed(texts)
+                sparse_vectors = list(sparse_vectors_gen)
+            else:
+                sparse_vectors = []
+        except Exception as e:
+            self._logger.error(f"Error generating sparse embeddings: {e}")
+            # Fallback: no sparse vectors
+            sparse_vectors = [None] * len(chunks)
+
+        # Índice para iterar sobre sparse_vectors (solo incrementa si chunk tiene embedding)
+        sparse_idx = 0
+        
         for i, chunk in enumerate(chunks):
             if not chunk.embedding:
                 self._logger.warning(f"Chunk {chunk.chunk_id} sin embedding")
@@ -161,9 +194,24 @@ class QdrantHandler(BaseHandler):
                     }
                 )
             
+            # Obtener sparse vector correspondiente si existe
+            sparse_vec = None
+            if sparse_idx < len(sparse_vectors):
+                sv = sparse_vectors[sparse_idx]
+                if sv:
+                    sparse_vec = SparseVector(
+                        indices=sv.indices.tolist(),
+                        values=sv.values.tolist()
+                    )
+                sparse_idx += 1
+
             point = PointStruct(
                 id=chunk.chunk_id,
-                vector=chunk.embedding,
+                # Vector híbrido: dense + bm25
+                vector={
+                    "dense": chunk.embedding,
+                    "bm25": sparse_vec
+                },
                 payload=payload
             )
             points.append(point)

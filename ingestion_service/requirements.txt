@@ -19,7 +19,7 @@ supabase
 gotrue>=2.0.0
 
 # Vector Database client
-qdrant-client==1.9.1
+qdrant-client[fastembed]>=1.16.2
 
 # Document Processing - CORE
 PyMuPDF==1.24.12  # Para PDFs (librería fitz) - compatible con pymupdf4llm>=0.0.17

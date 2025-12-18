@@ -97,6 +97,7 @@ class RAGHandler(BaseHandler):
             try:
                 search_results = await self.qdrant_client.search(
                     query_embedding=query_embedding,
+                    query_text=query_text,
                     collection_ids=rag_config.collection_ids,
                     top_k=rag_config.top_k,
                     similarity_threshold=rag_config.similarity_threshold,
