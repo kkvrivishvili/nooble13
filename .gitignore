@@ -1,0 +1,191 @@
+# PostgreSQL data directory
+/volumes/db/data/**
+
+# PostgreSQL configuration files (if you want to track them, remove these lines)
+#/volumes/db/data/pg_hba.conf
+#/volumes/db/data/pg_ident.conf
+#/volumes/db/data/postgresql.conf
+#/volumes/db/data/postgresql.auto.conf
+
+# PostgreSQL temporary files
+*.pid
+*.lock
+*.lck
+*.bak
+*.old
+*~
+
+# PostgreSQL log files
+*.log
+
+# Database dumps
+*.dump
+
+# Environment files
+#.env
+#.env.*
+#.env.example
+
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+### Python ###
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+develop-eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+.pytest_cache/
+pytestdebug.log
+
+# Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+### Node / Next.js / Shadcn ###
+# dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+### Qdrant Storage ###
+/qdrant_database/storage/
+/qdrant_database/snapshots/
+
+# testing
+coverage/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+
+# misc
+.DS_Store
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Turbo
+.turbo
+
+### General ###
+# IDE-specific
+.idea/
+*.swp
+*.swo
+
+# VSCode - Ignores the entire folder except for shared settings and extensions
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+.eslintcache
+.stylelintcache
+
+# Coverage
+.nyc_output
+coverage/
+
+# Stripe
+.stripe/
+
+# Local SSL
+*.pem
+*.key
+*.crt
+
+# Temporary files
+*.tmp
+*.temp
+.history/
+
+# Qdrant
+qdrant_database/storage/**
+qdrant_database/snapshots/**
+qdrant_database/config/local.yaml
+
+# Informational - Custom
+.projectoverview
+.profilessprint
+.organizationssprint
+.cookiehandle
+.prompts
+.magiclinksprint
+sprints/
+
+# Ignore .tanstack directory
+.tanstack/

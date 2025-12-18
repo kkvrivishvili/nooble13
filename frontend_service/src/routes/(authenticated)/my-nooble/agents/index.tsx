@@ -1,0 +1,6 @@
+import { createFileRoute } from '@tanstack/react-router'
+import AgentsPage from '@/features/my-nooble/agents'
+
+export const Route = createFileRoute('/(authenticated)/my-nooble/agents/')({
+  component: AgentsPage,
+})

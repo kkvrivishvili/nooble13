@@ -1,0 +1,206 @@
+/* src/features/public-profile/styles/profile-theme.css */
+
+/* CSS Variables are now applied locally via ProfileThemeProvider */
+/* No global :root variables needed - all variables are scoped to .profile-container */
+
+/* Base profile container with wallpaper background */
+.profile-container {
+  min-height: 100vh;
+  position: relative;
+  color: var(--profile-text-color);
+  font-family: var(--profile-font-family);
+  transition: all 0.3s ease;
+  /* Apply wallpaper directly to container */
+  background: var(--profile-wallpaper);
+  background-size: var(--profile-wallpaper-size);
+  background-position: var(--profile-wallpaper-position);
+  background-repeat: repeat;
+}
+
+/* Blur overlay for image, pattern, and video wallpapers */
+.profile-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  backdrop-filter: blur(var(--profile-blur-intensity));
+  -webkit-backdrop-filter: blur(var(--profile-blur-intensity));
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Video wallpaper container */
+.profile-video-wallpaper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.profile-video-wallpaper video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 100%;
+  min-height: 100%;
+  width: auto;
+  height: auto;
+  transform: translate(-50%, -50%);
+  object-fit: cover;
+}
+
+/* Content container */
+.profile-content {
+  position: relative;
+  z-index: 1;
+  max-width: var(--profile-content-width);
+  margin: 0 auto;
+  padding: var(--profile-spacing);
+}
+
+/* Button styles based on fill type */
+.profile-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--profile-border-radius);
+  font-family: var(--profile-font-family);
+  transition: all 0.2s ease;
+  box-shadow: var(--profile-button-shadow);
+  border: 1px solid var(--profile-primary-color);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+/* Solid fill */
+.profile-button-solid {
+  background-color: var(--profile-primary-color);
+  color: var(--profile-button-text-color);
+}
+
+.profile-button-solid:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--profile-button-shadow);
+}
+
+/* Glass fill */
+.profile-button-glass {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--profile-primary-color);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.profile-button-glass:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Outline fill */
+.profile-button-outline {
+  background-color: transparent;
+  color: var(--profile-primary-color);
+}
+
+.profile-button-outline:hover {
+  background-color: var(--profile-primary-color);
+  color: var(--profile-button-text-color);
+}
+
+/* Link styles - Always card style */
+.profile-link-card {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--profile-border-radius);
+  padding: var(--profile-spacing);
+  transition: all 0.2s ease;
+}
+
+.profile-link-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Pattern backgrounds for wallpaper */
+.profile-pattern-dots {
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.profile-pattern-lines {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    currentColor 10px,
+    currentColor 11px
+  );
+}
+
+.profile-pattern-grid {
+  background-image: 
+    repeating-linear-gradient(0deg, currentColor, currentColor 1px, transparent 1px, transparent 20px),
+    repeating-linear-gradient(90deg, currentColor, currentColor 1px, transparent 1px, transparent 20px);
+}
+
+.profile-pattern-waves {
+  background-image: 
+    repeating-radial-gradient(
+      circle at 0 0,
+      transparent 0,
+      currentColor 10px,
+      transparent 10px,
+      transparent 20px,
+      currentColor 20px,
+      currentColor 30px,
+      transparent 30px,
+      transparent 40px
+    );
+}
+
+/* Animations */
+@keyframes profile-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.profile-animate-in {
+  animation: profile-fade-in 0.5s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .profile-container {
+    --profile-content-width: 100%;
+  }
+  
+  .profile-content {
+    padding: 0.5rem; /* Always compact on mobile */
+  }
+}
+
+/* Slider touch action fix */
+[role="slider"] {
+  touch-action: none;
+}
+
+/* Ensure proper z-index stacking */
+.profile-container > * {
+  position: relative;
+}
+
+/* Fix for select dropdowns */
+[data-radix-popper-content-wrapper] {
+  z-index: 50;
+}

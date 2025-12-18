@@ -1,0 +1,454 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* Font classes */
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-manrope: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-manrope);
+}
+
+/* Apply font family to body as well for better specificity */
+body {
+  font-family: inherit;
+  background-color: var(--color-base-100);
+  color: var(--color-base-content);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Font classes */
+.font-inter {
+  font-family: var(--font-sans);
+}
+
+.font-manrope {
+  font-family: var(--font-manrope);
+}
+
+.font-system {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+:root {
+  /* Base Colors */
+  --color-base-100: oklch(0.98 0 117.21);
+  --color-base-200: color-mix(in oklch, var(--color-base-100), black 02%);
+  --color-base-300: color-mix(in oklch, var(--color-base-100), black 10%);
+  --color-base-400: color-mix(in oklch, var(--color-base-100), black 20%);
+  --color-base-500: color-mix(in oklch, var(--color-base-100), black 30%);
+
+  --color-base-content: oklch(20% 0 0);
+  
+  /* Theme Colors */
+  --color-primary: oklch(85% 0.199 91.936);
+  --color-primary-content: oklch(42% 0.095 57.708);
+  --color-secondary: oklch(75% 0.183 55.934);
+  --color-secondary-content: oklch(40% 0.123 38.172);
+  --color-accent: oklch(0.92 0 117.21);
+  --color-accent-content: oklch(37% 0.01 67.558);
+  --color-neutral: oklch(37% 0.01 67.558);
+  --color-neutral-content: oklch(92% 0.003 48.717);
+  
+  /* Status Colors */
+  --color-info: oklch(74% 0.16 232.661);
+  --color-info-content: oklch(39% 0.09 240.876);
+  --color-success: oklch(76% 0.177 163.223);
+  --color-success-content: oklch(37% 0.077 168.94);
+  --color-warning: oklch(82% 0.189 84.429);
+  --color-warning-content: oklch(41% 0.112 45.904);
+  --color-error: oklch(70% 0.191 22.216);
+  --color-error-content: oklch(39% 0.141 25.723);
+  
+  /* Borders & Radius */
+  --border: 1px;
+  --radius: 0.5rem;
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  
+  /* Sizes */
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  
+  /* Effects */
+  --depth: 1;
+  --noise: 0;
+  
+  /* Compatibility with existing theme */
+  --background: var(--color-base-100);
+  --foreground: var(--color-base-content);
+  --card: var(--color-base-100);
+  --card-foreground: var(--color-base-content);
+  --popover: var(--color-base-100);
+
+  /* Active tab styles */
+  --tab-active-bg: var(--color-accent);
+  --tab-active-text: var(--color-accent-content);
+  
+  /* Tab styles */
+  [data-slot="tabs-trigger"][data-state="active"],
+  .data-\[state\=active\]\:bg-background[data-state="active"] {
+    background-color: var(--color-accent) !important;
+    color: var(--color-accent-content) !important;
+  }
+  
+  [data-slot="tabs-trigger"][data-state="active"]:hover,
+  .data-\[state\=active\]\:bg-background[data-state="active"]:hover {
+    background-color: var(--color-accent) !important;
+    color: var(--color-accent-content) !important;
+    opacity: 0.9;
+  }
+  --popover-foreground: var(--color-base-content);
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-primary-content);
+  --secondary: var(--color-secondary);
+  --secondary-foreground: var(--color-secondary-content);
+  --muted: var(--color-base-200);
+  --muted-foreground: oklch(55.4% 0.046 257.417);
+  --accent: var(--color-accent);
+  --accent-foreground: var(--color-accent-content);
+  --destructive: var(--color-error);
+  --destructive-foreground: var(--color-error-content);
+  --border: var(--border);
+  --input: var(--color-base-200);
+  --ring: var(--color-primary);
+  
+  /* Sidebar */
+  --sidebar: var(--color-base-100);
+  --sidebar-foreground: var(--color-base-content);
+  --sidebar-primary: var(--color-primary);
+  --sidebar-primary-foreground: var(--color-primary-content);
+  --sidebar-accent: var(--color-accent);
+  --sidebar-accent-foreground: var(--color-accent-content);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --sidebar-bg: var(--color-base-200);
+  --sidebar-bg-dark: oklch(20% 0.005 285.823 / 0.95);
+  
+  /* Header */
+  --header-bg: oklch(0.96 0 117.21);
+  --header-foreground: var(--color-base-content);
+  --header-border: var(--color-base-200);
+}
+
+.dark {
+  --color-base-100: oklch(20% 0 0);
+  --color-base-200: oklch(30% 0.01 0);
+  --color-base-300: oklch(40% 0.01 0);
+  --color-base-content: oklch(95% 0 0);
+  
+  /* Dark mode adjustments for better contrast */
+  --color-primary: oklch(75% 0.199 91.936);
+  --color-primary-content: oklch(20% 0 0);
+  --color-secondary: oklch(65% 0.183 55.934);
+  --color-secondary-content: oklch(20% 0 0);
+  --color-accent: oklch(70% 0.076 70.697);
+  --color-accent-content: oklch(20% 0 0);
+  --color-neutral: oklch(50% 0.01 67.558);
+  --color-neutral-content: oklch(95% 0 0);
+  
+  /* Header en modo oscuro */
+  --header-bg: oklch(20% 0.01 0);
+  --header-foreground: oklch(95% 0 0);
+  --header-border: oklch(1 0 0 / 10%);
+  
+  /* Update other colors for dark mode as needed */
+  --background: var(--color-base-100);
+  --foreground: var(--color-base-content);
+  --card: var(--color-base-200);
+  --card-foreground: var(--color-base-content);
+  --popover: var(--color-base-200);
+  --popover-foreground: var(--color-base-content);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+}
+
+/* Light background color */
+.light-bg {
+  background-color: oklch(99% 0.003 247.858);
+}
+
+@theme inline {
+  
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+ /* 📐 Escala tipográfica moderna (basada en proporción 1.125 - Major Second) */
+ --text-xs: 0.75rem;    
+ --text-xs--line-height: 1rem;      
+ 
+ --text-sm: 0.875rem;  
+ --text-sm--line-height: 1.25rem;  
+ 
+ --text-base: 1rem;     /* 16px - Base de referencia */
+ --text-base--line-height: 1.5rem;  /* 24px */
+ 
+ --text-lg: 1.25rem;   /* 18px */
+ --text-lg--line-height: 1.75rem;   /* 28px */
+ 
+ --text-xl: 1.35rem;    /* 20px */
+ --text-xl--line-height: 2rem;   /* 28px */
+ 
+ --text-2xl: 1.5rem;    /* 24px */
+ --text-2xl--line-height: 2rem;     /* 32px */
+ 
+ --text-3xl: 1.875rem;  /* 30px */
+ --text-3xl--line-height: 2.25rem;  /* 36px */
+ 
+ --text-4xl: 2.25rem;   /* 36px */
+ --text-4xl--line-height: 2.5rem;   /* 40px */
+ 
+ --text-5xl: 3rem;      /* 48px */
+ --text-5xl--line-height: 1;        /* Tight para títulos grandes */
+ 
+ --text-6xl: 3.75rem;   /* 60px */
+ --text-6xl--line-height: 1;        /* Tight para títulos grandes */
+ 
+ --text-7xl: 4.5rem;    /* 72px */
+ --text-7xl--line-height: 1;        /* Tight para títulos grandes */
+ 
+ --text-8xl: 6rem;      /* 96px */
+ --text-8xl--line-height: 1;        /* Tight para títulos grandes */
+ 
+ --text-9xl: 8rem;      /* 128px */
+ --text-9xl--line-height: 1;        /* Tight para títulos grandes */
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  html {
+    @apply overflow-x-hidden;
+  }
+  body {
+    @apply bg-background text-foreground min-h-svh w-full;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Prevent focus zoom on mobile devices */
+  @media screen and (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Contenedor principal transparente */
+main > main,
+main > div > main {
+  margin-inline: auto;
+  padding: 0;
+  max-width: 100%;
+  width: 100%;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+
+@utility no-scrollbar {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+/* Header - Usando variables de tema */
+header.bg-background.flex.min-h-16 {
+  background-color: var(--header-bg) !important;
+  color: var(--header-foreground) !important;
+  border-color: var(--header-border) !important;
+}
+
+@utility faded-bottom {
+  @apply after:pointer-events-none after:absolute after:bottom-0 after:left-0 after:hidden after:h-32 after:w-full after:bg-[linear-gradient(180deg,_transparent_10%,_var(--background)_70%)] md:after:block;
+}
+
+/* styles.css */
+.CollapsibleContent {
+  overflow: hidden;
+}
+.CollapsibleContent[data-state='open'] {
+  animation: slideDown 300ms ease-out;
+}
+.CollapsibleContent[data-state='closed'] {
+  animation: slideUp 300ms ease-out;
+}
+
+/* Header alignment */
+header.bg-background.flex.min-h-16 {
+  align-items: center;
+  padding: 0 1rem;
+}
+
+/* Title alignment */
+header h1 {
+  margin: 0;
+  line-height: 1;
+}
+
+/* Dark mode overrides */
+.dark a[data-slot="button"][href="/settings"] {
+  background-color: var(--color-base-200) !important;
+}
+
+.dark a[data-slot="button"][href="/settings"]:hover {
+  background-color: var(--color-base-300) !important;
+}
+
+@keyframes slideDown {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+/* ========================================
+   WIDGET SYSTEM STYLES
+   ======================================== */
+
+/* Widget drag overlay - el efecto visual durante el arrastre */
+.widget-drag-overlay {
+  @apply rounded-xl shadow-2xl;
+  @apply bg-white dark:bg-gray-800;
+  @apply border border-gray-200 dark:border-gray-700;
+  @apply opacity-90 transform rotate-3 cursor-grabbing;
+}
+
+/* Widget header styles */
+.widget-header {
+  @apply flex items-center justify-between p-4;
+  @apply border-b border-gray-100 dark:border-gray-700/50;
+}
+
+/* Widget icon container */
+.widget-icon {
+  @apply flex items-center justify-center w-8 h-8;
+  @apply rounded-lg bg-gray-100 dark:bg-gray-700;
+  @apply flex-shrink-0;
+}
+
+/* Widget title */
+.widget-title {
+  @apply font-medium text-gray-900 dark:text-gray-100;
+  @apply truncate;
+}
+
+/* Widget description */
+.widget-description {
+  @apply text-sm text-gray-600 dark:text-gray-400 mb-2;
+  @apply line-clamp-2;
+}
+
+/* Widget link preview area */
+.widget-link-preview {
+  @apply p-4 pt-3 cursor-pointer;
+  @apply hover:bg-gray-50 dark:hover:bg-gray-800/50;
+  @apply transition-colors duration-200;
+  @apply border-t border-gray-100 dark:border-gray-700/50;
+}
+
+/* Widget empty state */
+.widget-empty {
+  @apply text-center py-16 px-8;
+  @apply border-2 border-dashed border-gray-300 dark:border-gray-700;
+  @apply rounded-xl;
+}
+
+.widget-empty-icon {
+  @apply mx-auto mb-4;
+  @apply text-gray-400 dark:text-gray-600;
+}
+
+.widget-empty-title {
+  @apply text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2;
+}
+
+.widget-empty-description {
+  @apply text-gray-600 dark:text-gray-400 mb-6;
+  @apply max-w-md mx-auto;
+}
+
+/* Widget editor styles */
+.widget-editor {
+  @apply p-4 bg-blue-50 dark:bg-blue-950/20;
+  @apply border-2 border-blue-200 dark:border-blue-800;
+  @apply rounded-xl space-y-4;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .widget-header {
+    @apply p-3;
+  }
+  
+  .widget-link-preview {
+    @apply p-3;
+  }
+}

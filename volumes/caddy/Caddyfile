@@ -1,0 +1,37 @@
+
+    import /etc/caddy/snippets/cors.conf
+
+    {$DOMAIN} {
+        
+        @supa_api path /rest/v1/* /auth/v1/* /realtime/v1/* /functions/v1/*
+
+        
+
+        handle @supa_api {
+		    reverse_proxy kong:8000
+	    }
+
+        handle_path /storage/v1/* {
+            import cors *
+            reverse_proxy storage:5000
+        }
+
+        handle /upload/resumable* {
+            import cors *
+            reverse_proxy storage:5000
+        }
+
+        handle_path /goapi/* {
+            reverse_proxy kong:8000
+        }
+
+       	handle {
+            basic_auth {
+			    {$PROXY_AUTH_USERNAME} {$PROXY_AUTH_PASSWORD}
+		    }	    	
+
+		    reverse_proxy studio:3000
+	    }
+      	
+        header -server
+}

@@ -1,0 +1,19 @@
+# Framework
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+
+# Core
+pydantic==2.10.6
+pydantic-settings==2.6.0
+redis==5.0.0
+python-dotenv==1.0.1
+
+# Supabase
+supabase
+
+# Utilities
+tenacity==9.0.0
+
+# Testing (opcional)
+pytest==8.3.5
+pytest-asyncio==0.21.1
