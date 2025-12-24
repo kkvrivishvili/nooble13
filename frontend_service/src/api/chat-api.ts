@@ -27,7 +27,7 @@ export interface ChatInitResponse {
 export interface ChatSessionStatus {
   session_id: UUID;
   session_type: 'chat';
-  tenant_id: UUID;
+  user_id: UUID;
   agent_id: UUID;
   websocket_connected: boolean;
   total_tasks: number;
@@ -405,6 +405,6 @@ export interface ChatProcessingData {
 }
 
 export interface ChatErrorEnvelope {
-  error?: { message?: string; [k: string]: unknown };
+  error?: { message?: string;[k: string]: unknown };
   [k: string]: unknown;
 }

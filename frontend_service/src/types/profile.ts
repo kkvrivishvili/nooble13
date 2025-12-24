@@ -15,12 +15,15 @@ export interface SocialLink {
 // Updated ProfileLink to match widget_links table
 export interface ProfileLink {
   id: string;
-  profile_id: string;
+  user_id: string;
   title: string;
   url: string;
   description?: string;
   icon?: string;
+  position: number;
+  is_active: boolean;
   created_at?: string;
+  updated_at?: string;
 }
 
 // Widget types
@@ -77,38 +80,38 @@ export interface ProfileTheme {
   background_color: string;
   text_color?: string;
   button_text_color?: string;
-  
+
   // Typography
   font_family?: 'sans' | 'serif' | 'mono';
   font_size?: 'sm' | 'md' | 'lg';
-  
+
   // Styling
   border_radius?: 'sharp' | 'curved' | 'round';
   button_fill?: 'solid' | 'glass' | 'outline';
   button_shadow?: 'none' | 'subtle' | 'hard';
-  
+
   // Wallpaper
   wallpaper?: ProfileWallpaper;
 }
 
 export interface ProfileWallpaper {
   type: 'fill' | 'gradient' | 'pattern' | 'image' | 'video';
-  
+
   // Fill type
   fill_color?: string;
-  
+
   // Gradient type
   gradient_colors?: string[];
   gradient_direction?: 'up' | 'down' | 'left' | 'right' | 'diagonal';
   gradient_type?: 'linear' | 'radial';
-  
+
   // Pattern type
   pattern_type?: 'dots' | 'lines' | 'grid' | 'waves' | 'circles';
   pattern_color?: string;
   pattern_opacity?: number;
   pattern_blur?: boolean;
   pattern_blur_intensity?: number;
-  
+
   // Image type
   image_url?: string;
   image_position?: 'center' | 'top' | 'bottom' | 'left' | 'right';
@@ -116,7 +119,7 @@ export interface ProfileWallpaper {
   image_overlay?: string; // rgba color for overlay
   image_blur?: boolean;
   image_blur_intensity?: number;
-  
+
   // Video type
   video_url?: string;
   video_muted?: boolean;
@@ -145,106 +148,130 @@ export interface Profile {
   description: string;
   avatar: string;
   social_links: SocialLink[];
-  agents: string[]; // Array of agent UUIDs
-  widgets: Widget[]; // Widget ordering and metadata
   design: ProfileDesign;
   is_public?: boolean;
   created_at?: string;
   updated_at?: string;
-  version?: number;
 }
 
 // Widget-specific types matching database tables with snake_case
 export interface WidgetLinks {
   id: string;
-  profile_id: string;
+  user_id: string;
   title: string;
   url: string;
   description?: string;
   icon?: string;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetGallery {
   id: string;
-  profile_id: string;
+  user_id: string;
   title?: string;
   products: string[]; // Product IDs (jsonb)
   show_price: boolean;
   show_description: boolean;
   columns: number;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetAgents {
   id: string;
-  profile_id: string;
+  user_id: string;
   title: string;
   agent_ids: string[]; // Agent IDs (jsonb)
   display_style: 'card' | 'list' | 'bubble';
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetYouTube {
   id: string;
-  profile_id: string;
+  user_id: string;
   video_url: string;
   title?: string;
   autoplay: boolean;
   show_controls: boolean;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetMaps {
   id: string;
-  profile_id: string;
+  user_id: string;
   address: string;
   latitude?: number;
   longitude?: number;
   zoom_level: number;
   map_style: string;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetSpotify {
   id: string;
-  profile_id: string;
+  user_id: string;
   spotify_url: string;
   embed_type: 'track' | 'playlist' | 'album' | 'artist';
   height: number;
   theme: 'dark' | 'light';
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetCalendar {
   id: string;
-  profile_id: string;
+  user_id: string;
   calendly_url: string;
   title: string;
   hide_event_details: boolean;
   hide_cookie_banner: boolean;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetSeparator {
   id: string;
-  profile_id: string;
+  user_id: string;
   style: 'solid' | 'dashed' | 'dotted';
   thickness: number;
   color: string;
   margin_top: number;
   margin_bottom: number;
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface WidgetTitle {
   id: string;
-  profile_id: string;
+  user_id: string;
   text: string;
   font_size: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   text_align: 'left' | 'center' | 'right';
   font_weight: 'normal' | 'medium' | 'semibold' | 'bold';
+  position: number;
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 // Full profile with populated data
@@ -269,8 +296,8 @@ export interface ProfileContextType {
   updateProfileInfo: (data: { display_name?: string; description?: string; avatar?: string; }) => void;
   isUsernameAvailable: (username: string) => Promise<boolean>;
   // Link widget management
-  addLinkWidget: (link: Omit<ProfileLink, 'id' | 'created_at' | 'profile_id'>) => void;
-  updateLinkWidget: (id: string, data: Partial<Omit<ProfileLink, 'id' | 'profile_id'>>) => void;
+  addLinkWidget: (link: Omit<ProfileLink, 'id' | 'created_at' | 'user_id' | 'position' | 'is_active' | 'updated_at'>) => void;
+  updateLinkWidget: (id: string, data: Partial<Omit<ProfileLink, 'id' | 'user_id'>>) => void;
   removeLinkWidget: (id: string) => void;
   reorderWidgets: (widgets: Widget[]) => void;
   // Social links (still in profile)

@@ -38,8 +38,7 @@ export interface IngestionResponse {
 
 export interface DocumentRecord {
   id: string;
-  profile_id: string;
-  tenant_id: string;
+  user_id: string;
   collection_id: string;
   document_id: string;
   document_name: string;
@@ -84,14 +83,14 @@ class IngestionAPI {
     ragConfig?: RAGConfig
   ): Promise<IngestionResponse> {
     const token = await getAuthToken();
-    
+
     const formData = new FormData();
     formData.append('file', file);
-    
+
     if (collectionId) {
       formData.append('collection_id', collectionId);
     }
-    
+
     // IMPORTANTE: Para List[str] en FastAPI, cada valor debe ser un campo separado
     // NO usar JSON.stringify
     if (agentIds && agentIds.length > 0) {
@@ -100,7 +99,7 @@ class IngestionAPI {
       });
     }
     // Si no hay agent_ids, FastAPI recibirá una lista vacía por defecto
-    
+
     // Add RAG config parameters as individual fields
     if (ragConfig?.embedding_model) {
       formData.append('embedding_model', ragConfig.embedding_model);
@@ -111,7 +110,7 @@ class IngestionAPI {
     if (ragConfig?.chunk_overlap !== undefined) {
       formData.append('chunk_overlap', ragConfig.chunk_overlap.toString());
     }
-    
+
     const response = await fetch(`${INGESTION_SERVICE_URL}/api/v1/upload`, {
       method: 'POST',
       headers: {
@@ -120,12 +119,12 @@ class IngestionAPI {
       },
       body: formData
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to upload document');
     }
-    
+
     return response.json();
   }
 
@@ -140,7 +139,7 @@ class IngestionAPI {
     ragConfig?: RAGConfig
   ): Promise<IngestionResponse> {
     const token = await getAuthToken();
-    
+
     const request: DocumentIngestionRequest = {
       document_name: documentName,
       document_type: 'url',
@@ -152,7 +151,7 @@ class IngestionAPI {
         source_url: url
       }
     };
-    
+
     const response = await fetch(`${INGESTION_SERVICE_URL}/api/v1/ingest`, {
       method: 'POST',
       headers: {
@@ -161,12 +160,12 @@ class IngestionAPI {
       },
       body: JSON.stringify(request)
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to ingest from URL');
     }
-    
+
     return response.json();
   }
 
@@ -183,18 +182,18 @@ class IngestionAPI {
     error?: string;
   }> {
     const token = await getAuthToken();
-    
+
     const response = await fetch(`${INGESTION_SERVICE_URL}/api/v1/status/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to get status');
     }
-    
+
     return response.json();
   }
 
@@ -203,7 +202,7 @@ class IngestionAPI {
    */
   async deleteDocument(documentId: string, collectionId: string): Promise<void> {
     const token = await getAuthToken();
-    
+
     const response = await fetch(`${INGESTION_SERVICE_URL}/api/v1/document/${documentId}`, {
       method: 'DELETE',
       headers: {
@@ -212,7 +211,7 @@ class IngestionAPI {
       },
       body: JSON.stringify({ collection_id: collectionId })
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to delete document');
@@ -228,7 +227,7 @@ class IngestionAPI {
     operation: 'set' | 'add' | 'remove' = 'set'
   ): Promise<void> {
     const token = await getAuthToken();
-    
+
     const response = await fetch(`${INGESTION_SERVICE_URL}/api/v1/document/${documentId}/agents`, {
       method: 'PUT',
       headers: {
@@ -240,7 +239,7 @@ class IngestionAPI {
         operation
       })
     });
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to update agents');
@@ -253,13 +252,13 @@ class IngestionAPI {
   async getUserDocuments(): Promise<DocumentRecord[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
-    
+
     const { data, error } = await supabase
       .from('documents_rag')
       .select('*')
-      .eq('profile_id', user.id)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false });
-    
+
     handleApiError(error, 'getUserDocuments');
     return data || [];
   }
@@ -270,14 +269,14 @@ class IngestionAPI {
   async getDocumentsByAgent(agentId: string): Promise<DocumentRecord[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
-    
+
     const { data, error } = await supabase
       .from('documents_rag')
       .select('*')
-      .eq('profile_id', user.id)
+      .eq('user_id', user.id)
       .contains('metadata', { agent_ids: [agentId] })
       .order('created_at', { ascending: false });
-    
+
     handleApiError(error, 'getDocumentsByAgent');
     return data || [];
   }
@@ -288,14 +287,14 @@ class IngestionAPI {
   async getDocumentsByCollection(collectionId: string): Promise<DocumentRecord[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
-    
+
     const { data, error } = await supabase
       .from('documents_rag')
       .select('*')
-      .eq('profile_id', user.id)
+      .eq('user_id', user.id)
       .eq('collection_id', collectionId)
       .order('created_at', { ascending: false });
-    
+
     handleApiError(error, 'getDocumentsByCollection');
     return data || [];
   }
@@ -306,15 +305,15 @@ class IngestionAPI {
   createProgressWebSocket(taskId: string, token: string): WebSocket {
     const wsUrl = INGESTION_SERVICE_URL.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/ingestion/${taskId}?token=${token}`);
-    
+
     ws.onopen = () => {
       console.log('WebSocket connected for task:', taskId);
     };
-    
+
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
-    
+
     return ws;
   }
 
@@ -330,14 +329,14 @@ class IngestionAPI {
   }> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
-    
+
     const { data: documents, error } = await supabase
       .from('documents_rag')
       .select('collection_id, total_chunks, metadata')
-      .eq('profile_id', user.id);
-    
+      .eq('user_id', user.id);
+
     handleApiError(error, 'getKnowledgeStats');
-    
+
     if (!documents) {
       return {
         total_documents: 0,
@@ -346,18 +345,18 @@ class IngestionAPI {
         agents_with_knowledge: 0
       };
     }
-    
+
     // Calculate stats
-    const uniqueCollections = new Set(documents.map(d => d.collection_id));
+    const uniqueCollections = new Set(documents.map((d: DocumentRecord) => d.collection_id));
     const uniqueAgents = new Set();
     let totalChunks = 0;
-    
-    documents.forEach(doc => {
+
+    documents.forEach((doc: DocumentRecord) => {
       totalChunks += doc.total_chunks || 0;
       const agentIds = doc.metadata?.agent_ids || [];
       agentIds.forEach((id: string) => uniqueAgents.add(id));
     });
-    
+
     return {
       total_documents: documents.length,
       total_chunks: totalChunks,

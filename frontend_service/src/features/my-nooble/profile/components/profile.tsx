@@ -4,9 +4,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  IconPencil, 
-  IconPlus, 
+import {
+  IconPencil,
+  IconPlus,
   IconAlertCircle
 } from '@tabler/icons-react';
 import { ProfileEditor } from './profile-editor';
@@ -24,9 +24,9 @@ function ProfileHeader() {
     return null;
   }
 
-  // Count active link widgets
-  const activeLinkWidgets = profile.widgets.filter(w => w.type === 'link' && w.is_active).length;
-  const totalActiveAgents = profile.agentDetails.filter(a => a.is_active).length;
+  // Count active link widgets and agents
+  const activeLinkWidgets = profile.linkWidgets?.length || 0;
+  const totalActiveAgents = profile.agentDetails?.filter((a: any) => a.is_active).length || 0;
 
   return (
     <>
@@ -47,15 +47,15 @@ function ProfileHeader() {
               </AvatarFallback>
             </Avatar>
           </div>
-          
+
           {/* Info and actions */}
           <div className="flex-1 text-center md:text-left">
             <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {profile.display_name}
               </h1>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="icon"
                 onClick={() => setIsEditDialogOpen(true)}
                 className="h-8 w-8 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -64,11 +64,11 @@ function ProfileHeader() {
                 <IconPencil size={16} />
               </Button>
             </div>
-            
+
             <p className="text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
               {profile.description}
             </p>
-            
+
             {/* Profile stats - Updated for new structure */}
             <div className="flex items-center justify-center md:justify-start gap-4 mb-4 text-sm text-gray-500 dark:text-gray-400">
               <span>{activeLinkWidgets} enlace{activeLinkWidgets !== 1 ? 's' : ''}</span>
@@ -79,18 +79,18 @@ function ProfileHeader() {
               <span>•</span>
               <span>@{profile.username}</span>
             </div>
-            
+
             {/* Social links */}
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-              {(profile.social_links ?? []).map((link) => {
+              {(profile.social_links ?? []).map((link: any) => {
                 const Icon = socialPlatformIcons[link.platform as keyof typeof socialPlatformIcons];
                 if (!Icon) return null;
-                
+
                 return (
-                  <a 
+                  <a
                     key={link.platform}
-                    href={link.url} 
-                    target="_blank" 
+                    href={link.url}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200"
                     aria-label={`Ver perfil en ${link.platform}`}
@@ -99,14 +99,14 @@ function ProfileHeader() {
                   </a>
                 );
               })}
-              
-              <Button 
+
+              <Button
                 variant="ghost"
                 onClick={() => setIsSocialLinksDialogOpen(true)}
                 className="p-2 h-auto rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200"
                 aria-label="Gestionar redes sociales"
               >
-                 <IconPlus size={20} strokeWidth={1.5} />
+                <IconPlus size={20} strokeWidth={1.5} />
               </Button>
             </div>
           </div>
@@ -150,7 +150,7 @@ function ProfileHeader() {
             </DialogDescription>
           </DialogHeader>
           <div>
-            <ProfileEditor 
+            <ProfileEditor
               onCancel={() => setIsEditDialogOpen(false)}
             />
           </div>
@@ -169,8 +169,8 @@ function ProfileHeader() {
           <div className="py-4">
             <SocialLinksEditor />
             <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setIsSocialLinksDialogOpen(false)}
               >
                 Cerrar
@@ -224,7 +224,7 @@ function LoadingState() {
 
 function ErrorState({ error }: { error: Error }) {
   const { refreshProfile } = useProfile();
-  
+
   return (
     <div className="max-w-4xl mx-auto p-4">
       <Alert className="border-red-200 bg-red-50 dark:bg-red-950/20">

@@ -89,29 +89,18 @@ class SupabaseWebSocketAuth(AuthenticationProtocol):
             bool: True si el mensaje está permitido
         """
         try:
-            # For ingestion connections, user must be authenticated
+            # User must be authenticated for protected resources
             if connection_info.connection_type == "ingestion":
                 if not connection_info.is_authenticated or not connection_info.user_id:
                     self.logger.warning(f"Unauthenticated ingestion attempt from {connection_info.connection_id}")
                     return False
                 
-                # Check tenant membership if tenant_id is specified
-                if message.tenant_id and connection_info.tenant_id:
-                    if message.tenant_id != connection_info.tenant_id:
-                        self.logger.warning(f"Tenant mismatch: message={message.tenant_id}, connection={connection_info.tenant_id}")
+                # Check user_id matching if specified in message
+                message_user_id = getattr(message, 'user_id', None)
+                if message_user_id and connection_info.user_id:
+                    if str(message_user_id) != str(connection_info.user_id):
+                        self.logger.warning(f"User mismatch: message={message_user_id}, connection={connection_info.user_id}")
                         return False
-                
-                # Additional validation for ingestion messages
-                if hasattr(message, 'task_id') and message.task_id:
-                    # Validate that user can perform ingestion for this tenant
-                    if connection_info.tenant_id and connection_info.user_id:
-                        is_member = await self.supabase.check_tenant_membership(
-                            str(connection_info.user_id),
-                            str(connection_info.tenant_id)
-                        )
-                        if not is_member:
-                            self.logger.warning(f"User {connection_info.user_id} not member of tenant {connection_info.tenant_id}")
-                            return False
             
             # For chat connections, no special permissions needed (public)
             elif connection_info.connection_type == "chat":
@@ -124,32 +113,25 @@ class SupabaseWebSocketAuth(AuthenticationProtocol):
             self.logger.error(f"Permission validation error: {str(e)}")
             return False
     
-    async def extract_tenant_from_token(self, token: str) -> Optional[str]:
+    async def extract_user_from_token(self, token: str) -> Optional[str]:
         """
-        Extrae el tenant_id del token JWT si está disponible.
+        Extrae el user_id del token JWT.
         
         Args:
             token: Token JWT
             
         Returns:
-            str: tenant_id o None si no está disponible
+            str: user_id o None si no está disponible
         """
         try:
             user_info = await self.supabase.verify_jwt_token(token)
             if not user_info:
                 return None
             
-            # Check if tenant_id is in app_metadata
-            tenant_id = user_info.app_metadata.get("tenant_id")
-            if tenant_id:
-                return str(tenant_id)
-            
-            # If not in metadata, we might need to query the user_tenants table
-            # For now, return None and let the application handle tenant selection
-            return None
+            return str(user_info.id)
             
         except Exception as e:
-            self.logger.error(f"Error extracting tenant from token: {str(e)}")
+            self.logger.error(f"Error extracting user from token: {str(e)}")
             return None
 
 
@@ -214,10 +196,6 @@ class PublicWebSocketAuth(AuthenticationProtocol):
         # Validate that required fields are present for chat
         if hasattr(message, 'agent_id') and not message.agent_id:
             self.logger.warning("Chat message missing agent_id")
-            return False
-        
-        if hasattr(message, 'tenant_id') and not message.tenant_id:
-            self.logger.warning("Chat message missing tenant_id")
             return False
         
         return True

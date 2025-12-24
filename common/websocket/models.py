@@ -53,13 +53,19 @@ class ConnectionInfo(BaseModel):
     # Authentication info
     is_authenticated: bool = Field(default=False)
     user_id: Optional[uuid.UUID] = Field(default=None)
-    tenant_id: Optional[uuid.UUID] = Field(default=None)
+    tenant_id: Optional[uuid.UUID] = Field(
+        None, 
+        alias="user_id", 
+        validation_alias="user_id", 
+        serialization_alias="user_id",
+        description="ID del tenant/usuario propietario"
+    )
     
     # Session info
     session_id: Optional[uuid.UUID] = Field(default=None)
     agent_id: Optional[uuid.UUID] = Field(default=None)
     
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "populate_by_name": True}
 
 
 class WebSocketError(BaseModel):

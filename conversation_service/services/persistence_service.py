@@ -66,23 +66,11 @@ class PersistenceService:
         user_message: str,
         agent_message: str,
         message_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        usage: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Guarda un intercambio completo de conversación.
-        
-        Args:
-            conversation_id: ID de la conversación
-            tenant_id: ID del tenant
-            session_id: ID de la sesión
-            agent_id: ID del agente
-            user_message: Mensaje del usuario
-            agent_message: Respuesta del agente
-            message_id: ID del mensaje (opcional)
-            metadata: Metadata adicional
-            
-        Returns:
-            Dict con el resultado de la operación
         """
         try:
             # Validar inputs
@@ -174,7 +162,7 @@ class PersistenceService:
                     "is_active": False,
                     "ended_at": datetime.utcnow().isoformat()
                 })
-                .eq('tenant_id', tenant_id)
+                .eq('user_id', tenant_id)
                 .eq('session_id', session_id)
                 .eq('agent_id', agent_id)
                 .eq('is_active', True)

@@ -22,7 +22,12 @@ class IngestionSettings(CommonAppSettings):
     # Supabase configuration
     supabase_url: str = Field(..., description="URL de Supabase")
     supabase_anon_key: str = Field(..., description="Clave anónima de Supabase")
-    supabase_service_key: Optional[str] = Field(None, description="Clave de servicio de Supabase")
+    supabase_service_key: Optional[str] = Field(
+        None, 
+        alias="SERVICE_ROLE_KEY",
+        validation_alias="SERVICE_ROLE_KEY",
+        description="Clave de servicio de Supabase"
+    )
     
     # Qdrant configuration
     qdrant_url: str = Field(..., description="URL de Qdrant")

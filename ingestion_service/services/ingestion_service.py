@@ -18,6 +18,7 @@ from common.services.base_service import BaseService
 from common.models.actions import DomainAction
 from common.clients.base_redis_client import BaseRedisClient
 from common.supabase.client import SupabaseClient
+from common.supabase.models import IngestionMetadata
 
 from ..models import (
     DocumentIngestionRequest,
@@ -468,11 +469,13 @@ class IngestionService(BaseService):
                     self._logger.debug("Could not set postgrest auth token", exc_info=True)
             # Consultar si ya hay documentos en esta collection
             def _select_existing():
+                # Usar admin_client para bypass de RLS
+                client = self.supabase_client.admin_client or self.supabase_client.client
                 return (
-                    self.supabase_client.client
+                    client
                     .table("documents_rag")
                     .select("embedding_model, embedding_dimensions")
-                    .eq("tenant_id", tenant_id)
+                    .eq("user_id", tenant_id)
                     .eq("collection_id", collection_id)
                     .limit(1)
                     .execute()
@@ -515,75 +518,88 @@ class IngestionService(BaseService):
     ):
         """Persiste metadata en tabla documents_rag."""
         try:
-            auth_token = task.get("auth_token")
-            if auth_token:
-                try:
-                    self.supabase_client.client.postgrest.auth(auth_token)
-                except Exception:
-                    self._logger.debug("Could not set postgrest auth token for insert", exc_info=True)
-            # agent_ids como array JSON
-            agent_ids_json = task["agent_ids"] if task["agent_ids"] else []
+            # agent_ids como array
+            agent_ids = task.get("agent_ids") or []
             
             # Obtener tipo de documento
-            request = task.get("request", {})
-            doc_type = request.get("document_type", "unknown")
-            # Configuración RAG usada (para campos requeridos)
+            request_data = task.get("request", {})
+            doc_type = request_data.get("document_type", "unknown")
+            
+            # Configuración RAG usada
             rag_cfg = task.get("rag_config", {})
             
-            document_data = {
-                "profile_id": task["user_id"],
-                "tenant_id": task["tenant_id"],
-                "collection_id": task["collection_id"],
-                "document_id": str(task["document_id"]),
-                "document_name": request.get("document_name", "Unknown"),
-                "document_type": doc_type,
+            # Crear modelo de metadata para validación y mapeo (tenant_id -> user_id)
+            metadata_model = IngestionMetadata(
+                tenant_id=uuid.UUID(str(task["tenant_id"])),
+                collection_id=task["collection_id"],
+                document_id=uuid.UUID(str(task["document_id"])),
+                document_name=request_data.get("document_name", "Unknown"),
+                document_type=doc_type,
                 
-                # Metadata de embeddings
-                "embedding_model": embedding_metadata["embedding_model"],
-                "embedding_dimensions": embedding_metadata["embedding_dimensions"],
-                "encoding_format": embedding_metadata.get("encoding_format", "float"),
-
-                # Configuración de chunking (NOT NULL en schema)
-                "chunk_size": rag_cfg.get("chunk_size"),
-                "chunk_overlap": rag_cfg.get("chunk_overlap"),
+                # Datos de embeddings
+                embedding_model=embedding_metadata["embedding_model"],
+                embedding_dimensions=embedding_metadata["embedding_dimensions"],
+                encoding_format=embedding_metadata.get("encoding_format", "float"),
+                
+                # Configuración de chunking
+                chunk_size=rag_cfg.get("chunk_size", 512),
+                chunk_overlap=rag_cfg.get("chunk_overlap", 50),
                 
                 # Estado
-                "status": "completed",
-                "total_chunks": task["total_chunks"],
-                "processed_chunks": task.get("processed_chunks", task["total_chunks"]),
+                status="completed",
+                total_chunks=task.get("total_chunks", 0),
+                processed_chunks=task.get("processed_chunks", task.get("total_chunks", 0)),
+                
+                # Agentes
+                agent_ids=agent_ids,
                 
                 # Metadata adicional
-                "metadata": {
-                    **request.get("metadata", {}),
-                    "agent_ids": agent_ids_json
-                },
-                
-                # Campo legacy agent_id (single)
-                "agent_id": agent_ids_json[0] if agent_ids_json else None
-            }
+                metadata={
+                    **request_data.get("metadata", {}),
+                    "task_id": str(task["task_id"])
+                }
+            )
             
+            # Convertir a dict usando alias para Supabase (user_id)
+            document_data = metadata_model.model_dump(by_alias=True, mode='json')
+            
+            # LOG DETALLADO PARA DIAGNÓSTICO
+            self._logger.info(f"Supabase persistence payload keys: {list(document_data.keys())}")
+            self._logger.debug(f"Supabase persistence payload (JSON): {json.dumps(document_data, indent=2)}")
+            
+            self._logger.info(f"Persisting metadata to Supabase: {metadata_model.document_name} ({metadata_model.document_id})")
+
+            # Usar admin_client para evitar problemas de RLS en worker de background
+            # y race conditions con el auth token compartido
             def _insert_document():
+                # Forzar admin_client para bypass de RLS
+                client = self.supabase_client.admin_client or self.supabase_client.client
+                self._logger.info(f"Using Supabase client type: {'admin' if self.supabase_client.admin_client else 'standard'}")
                 return (
-                    self.supabase_client.client
+                    client
                     .table("documents_rag")
                     .insert(document_data)
                     .execute()
                 )
+                
             response = await asyncio.to_thread(_insert_document)
             
+            # Verificar si hubo error en la respuesta (algunas versiones no levantan excepción)
+            if hasattr(response, 'error') and response.error:
+                raise Exception(f"Supabase API error (PGRST): {response.error}")
+                
             self._logger.info(
-                f"Metadata persisted for document {task['document_id']} "
-                f"(model: {embedding_metadata['embedding_model']})"
+                f"Metadata persisted successfully for document {task['document_id']} "
+                f"in collection {task['collection_id']}"
             )
             
         except Exception as e:
-            self._logger.error(f"Error persisting metadata: {e}")
+            self._logger.error(f"Error persisting metadata in Supabase: {e}", exc_info=True)
+            # No levantamos excepción para no romper el flujo del worker, 
+            # pero el error queda logueado.
         finally:
-            if task.get("auth_token"):
-                try:
-                    self.supabase_client.client.postgrest.auth(None)
-                except Exception:
-                    pass
+            # No es necesario limpiar auth porque usamos admin_client o no tocamos el auth del client
+            pass
     
     async def delete_document(
         self,
@@ -608,18 +624,30 @@ class IngestionService(BaseService):
                 except Exception:
                     self._logger.debug("Could not set postgrest auth token for delete", exc_info=True)
             def _delete_document():
+                # Usar admin_client para bypass de RLS
+                client = self.supabase_client.admin_client or self.supabase_client.client
+                self._logger.info(f"Deleting document from Supabase (user_id={tenant_id}, document_id={document_id})")
                 return (
-                    self.supabase_client.client
+                    client
                     .table("documents_rag")
                     .delete()
                     .match({
-                        "tenant_id": str(tenant_id),
+                        "user_id": str(tenant_id),
                         "document_id": str(document_id),
                         "collection_id": collection_id
                     })
                     .execute()
                 )
-            await asyncio.to_thread(_delete_document)
+            response = await asyncio.to_thread(_delete_document)
+            
+            # Verificar si se eliminó algo en Supabase
+            if hasattr(response, 'data') and not response.data:
+                self._logger.warning(
+                    f"Document {document_id} was deleted from Qdrant but not found in Supabase "
+                    f"(or no permission for tenant {tenant_id})"
+                )
+            elif response:
+                self._logger.info(f"Document {document_id} deleted successfully from Supabase")
             
             return {
                 "message": "Document deleted successfully",
@@ -645,65 +673,32 @@ class IngestionService(BaseService):
         operation: str = "set",
         auth_token: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Actualiza los agentes con acceso a un documento."""
+        """Actualiza agentes con acceso a un documento."""
         try:
             # 1. Actualizar en Qdrant
-            success = await self.qdrant_handler.update_chunk_agents(
+            await self.qdrant_handler.update_chunk_agents(
                 tenant_id=str(tenant_id),
                 document_id=str(document_id),
                 agent_ids=agent_ids,
                 operation=operation
             )
             
-            if not success:
-                raise ValueError("Failed to update agents in Qdrant")
-            
-            # 2. Actualizar en Supabase
-            if auth_token:
-                try:
-                    self.supabase_client.client.postgrest.auth(auth_token)
-                except Exception:
-                    self._logger.debug("Could not set postgrest auth token for update", exc_info=True)
-            def _select_doc():
+            # 2. Actualizar en Supabase usando RPC
+            def _update_supabase():
+                # Usar admin_client para bypass de RLS y asegurar ejecución
+                client = self.supabase_client.admin_client or self.supabase_client.client
+                self._logger.info(f"Updating agents for document {document_id} via RPC (op={operation})")
+                
                 return (
-                    self.supabase_client.client
-                    .table("documents_rag")
-                    .select("metadata")
-                    .match({
-                        "tenant_id": str(tenant_id),
-                        "document_id": str(document_id)
+                    client.rpc("update_document_agents", {
+                        "p_document_id": str(document_id),
+                        "p_agent_ids": agent_ids,
+                        "p_operation": operation
                     })
-                    .single()
                     .execute()
                 )
-            current_doc = await asyncio.to_thread(_select_doc)
             
-            if current_doc.data:
-                metadata = current_doc.data["metadata"] or {}
-                current_agents = metadata.get("agent_ids", [])
-                
-                if operation == "set":
-                    metadata["agent_ids"] = agent_ids
-                elif operation == "add":
-                    metadata["agent_ids"] = list(set(current_agents + agent_ids))
-                elif operation == "remove":
-                    metadata["agent_ids"] = [a for a in current_agents if a not in agent_ids]
-                
-                def _update_doc():
-                    return (
-                        self.supabase_client.client
-                        .table("documents_rag")
-                        .update({
-                            "metadata": metadata,
-                            "agent_id": agent_ids[0] if agent_ids else None
-                        })
-                        .match({
-                            "tenant_id": str(tenant_id),
-                            "document_id": str(document_id)
-                        })
-                        .execute()
-                    )
-                await asyncio.to_thread(_update_doc)
+            await asyncio.to_thread(_update_supabase)
             
             return {
                 "success": True,
@@ -713,7 +708,7 @@ class IngestionService(BaseService):
             }
             
         except Exception as e:
-            self._logger.error(f"Error updating agents: {e}")
+            self._logger.error(f"Error updating agents: {e}", exc_info=True)
             raise
         finally:
             if auth_token:

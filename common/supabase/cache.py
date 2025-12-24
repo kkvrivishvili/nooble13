@@ -61,26 +61,26 @@ class SupabaseCache:
         await self._trigger_invalidation_listeners("agent_config", agent_id)
         self.logger.info(f"Agent config cache invalidated: {agent_id}")
     
-    # Tenant Info Cache
-    async def get_tenant_info(self, tenant_id: str) -> Optional[Dict[str, Any]]:
-        """Obtiene información de tenant desde cache."""
-        cache_key = self.key_manager.get_key("tenant_info", tenant_id)
+    # Subscription Info Cache
+    async def get_subscription_info(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene información de suscripción desde cache."""
+        cache_key = self.key_manager.get_key("subscription_info", user_id)
         return await self.cache_manager.get(cache_key)
     
-    async def set_tenant_info(self, tenant_id: str, info: Dict[str, Any], ttl: int = 300) -> None:
-        """Guarda información de tenant en cache."""
-        cache_key = self.key_manager.get_key("tenant_info", tenant_id)
+    async def set_subscription_info(self, user_id: str, info: Dict[str, Any], ttl: int = 300) -> None:
+        """Guarda información de suscripción en cache."""
+        cache_key = self.key_manager.get_key("subscription_info", user_id)
         await self.cache_manager.set(cache_key, info, ttl=ttl)
-        self.logger.debug(f"Tenant info cached: {tenant_id}")
+        self.logger.debug(f"Subscription info cached: {user_id}")
     
-    async def invalidate_tenant_info(self, tenant_id: str) -> None:
-        """Invalida cache de información de tenant."""
-        cache_key = self.key_manager.get_key("tenant_info", tenant_id)
+    async def invalidate_subscription_info(self, user_id: str) -> None:
+        """Invalida cache de información de suscripción."""
+        cache_key = self.key_manager.get_key("subscription_info", user_id)
         await self.cache_manager.delete(cache_key)
         
         # Trigger event listeners
-        await self._trigger_invalidation_listeners("tenant_info", tenant_id)
-        self.logger.info(f"Tenant info cache invalidated: {tenant_id}")
+        await self._trigger_invalidation_listeners("subscription_info", user_id)
+        self.logger.info(f"Subscription info cache invalidated: {user_id}")
     
     # Session Cache (for WebSocket sessions)
     async def get_session_config(self, session_id: str, agent_id: str) -> Optional[Dict[str, Any]]:
@@ -120,17 +120,17 @@ class SupabaseCache:
         await self.cache_manager.delete_pattern(pattern)
         self.logger.info("All agent configs cache invalidated")
     
-    async def invalidate_all_tenant_info(self) -> None:
-        """Invalida toda la información de tenants."""
-        pattern = self.key_manager.get_key("tenant_info", "*")
+    async def invalidate_all_subscription_info(self) -> None:
+        """Invalida toda la información de suscripciones."""
+        pattern = self.key_manager.get_key("subscription_info", "*")
         await self.cache_manager.delete_pattern(pattern)
-        self.logger.info("All tenant info cache invalidated")
+        self.logger.info("All subscription info cache invalidated")
     
     async def clear_all_cache(self) -> None:
         """Limpia todo el cache de Supabase."""
         patterns = [
             self.key_manager.get_key("agent_config", "*"),
-            self.key_manager.get_key("tenant_info", "*"),
+            self.key_manager.get_key("subscription_info", "*"),
             self.key_manager.get_key("session_config", "*")
         ]
         
@@ -174,14 +174,14 @@ class SupabaseCache:
         try:
             # Count keys by pattern
             agent_config_count = await self._count_keys_by_pattern("agent_config:*")
-            tenant_info_count = await self._count_keys_by_pattern("tenant_info:*")
+            subscription_info_count = await self._count_keys_by_pattern("subscription_info:*")
             session_config_count = await self._count_keys_by_pattern("session_config:*")
             
             return {
                 "agent_configs": agent_config_count,
-                "tenant_info": tenant_info_count,
+                "subscription_info": subscription_info_count,
                 "session_configs": session_config_count,
-                "total_keys": agent_config_count + tenant_info_count + session_config_count,
+                "total_keys": agent_config_count + subscription_info_count + session_config_count,
                 "timestamp": datetime.utcnow().isoformat()
             }
         except Exception as e:

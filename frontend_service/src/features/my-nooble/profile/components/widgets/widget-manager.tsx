@@ -1,7 +1,7 @@
 // src/features/my-nooble/profile/components/widgets/widget-manager.tsx
 import { useState, useEffect, useCallback } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
+import {
   IconPlus,
   IconAlertCircle,
 } from '@tabler/icons-react';
@@ -41,11 +41,12 @@ interface WidgetManagerProps {
 }
 
 export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps) {
-  const { 
-    profile, 
-    refreshProfile 
+  const {
+    profile,
+    refreshProfile,
+    reorderWidgets
   } = useProfile();
-  
+
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(initialShowAddNew);
   const [showWidgetSelector, setShowWidgetSelector] = useState(false);
@@ -60,7 +61,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
   useEffect(() => {
     // Listen for widget selector event from header button
     window.addEventListener('showWidgetSelector', handleShowWidgetSelector);
-    
+
     return () => {
       window.removeEventListener('showWidgetSelector', handleShowWidgetSelector);
     };
@@ -68,54 +69,35 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
 
   if (!profile) return null;
 
-  // Get active widgets sorted by position
-  const activeWidgets = profile.widgets
+  // 1. Get all widgets from individual arrays and flatten them
+  const allWidgets = [
+    ...(profile.linkWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Link })),
+    ...(profile.agentWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Agents })),
+    ...(profile.galleryWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Gallery })),
+    ...(profile.youtubeWidgets || []).map((w: any) => ({ ...w, type: WidgetType.YouTube })),
+    ...(profile.mapsWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Maps })),
+    ...(profile.spotifyWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Spotify })),
+    ...(profile.calendarWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Calendar })),
+    ...(profile.separatorWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Separator })),
+    ...(profile.titleWidgets || []).map((w: any) => ({ ...w, type: WidgetType.Title }))
+  ];
+
+  // 2. Sort by position
+  const activeWidgets = allWidgets
     .filter(w => w.is_active)
     .sort((a, b) => a.position - b.position);
 
-  // Map widgets to their data
-  const widgetsWithData = activeWidgets.map(widget => {
-    switch (widget.type) {
-      case WidgetType.Link: {
-        const linkData = profile.linkWidgets?.find(l => l.id === widget.id);
-        return linkData ? { widget, data: linkData, type: WidgetType.Link } : null;
-      }
-      case WidgetType.Agents: {
-        const agentData = profile.agentWidgets?.find(w => w.id === widget.id);
-        return agentData ? { widget, data: agentData, type: WidgetType.Agents } : null;
-      }
-      case WidgetType.Gallery: {
-        const galleryData = profile.galleryWidgets?.find(w => w.id === widget.id);
-        return galleryData ? { widget, data: galleryData, type: WidgetType.Gallery } : null;
-      }
-      case WidgetType.YouTube: {
-        const youtubeData = profile.youtubeWidgets?.find(w => w.id === widget.id);
-        return youtubeData ? { widget, data: youtubeData, type: WidgetType.YouTube } : null;
-      }
-      case WidgetType.Maps: {
-        const mapsData = profile.mapsWidgets?.find(w => w.id === widget.id);
-        return mapsData ? { widget, data: mapsData, type: WidgetType.Maps } : null;
-      }
-      case WidgetType.Spotify: {
-        const spotifyData = profile.spotifyWidgets?.find(w => w.id === widget.id);
-        return spotifyData ? { widget, data: spotifyData, type: WidgetType.Spotify } : null;
-      }
-      case WidgetType.Calendar: {
-        const calendarData = profile.calendarWidgets?.find(w => w.id === widget.id);
-        return calendarData ? { widget, data: calendarData, type: WidgetType.Calendar } : null;
-      }
-      case WidgetType.Separator: {
-        const separatorData = profile.separatorWidgets?.find(w => w.id === widget.id);
-        return separatorData ? { widget, data: separatorData, type: WidgetType.Separator } : null;
-      }
-      case WidgetType.Title: {
-        const titleData = profile.titleWidgets?.find(w => w.id === widget.id);
-        return titleData ? { widget, data: titleData, type: WidgetType.Title } : null;
-      }
-      default:
-        return null;
-    }
-  }).filter(Boolean) as Array<{ widget: BaseWidget; data: any; type: WidgetType }>;
+  // 3. Map widgets to the format expected by the manager
+  const widgetsWithData = activeWidgets.map(w => ({
+    widget: {
+      id: w.id,
+      type: w.type as WidgetType,
+      position: w.position,
+      is_active: w.is_active
+    } as BaseWidget,
+    data: w,
+    type: w.type as WidgetType
+  }));
 
   // Widget type selection handler
   const handleWidgetTypeSelected = (type: WidgetType) => {
@@ -349,9 +331,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
 
   const handleReorderWidgets = async (newWidgets: BaseWidget[]) => {
     try {
-      const widgetIds = newWidgets.map(w => w.id);
-      await profileApi.reorderWidgets(profile.id, widgetIds);
-      await refreshProfile();
+      await reorderWidgets(newWidgets as any); // Cast for safety if needed
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al reordenar los widgets');
@@ -374,7 +354,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
 
   const renderWidget = (widget: BaseWidget, data: any, type: WidgetType) => {
     const is_editing = editingWidgetId === widget.id;
-    
+
     switch (type) {
       case WidgetType.Link:
         return is_editing ? (
@@ -394,7 +374,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
             onDelete={() => handleDeleteWidget(widget.id, widget.type)}
           />
         );
-        
+
       case WidgetType.Agents:
         return is_editing ? (
           <AgentsEditor
@@ -413,7 +393,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
             onDelete={() => handleDeleteWidget(widget.id, widget.type)}
           />
         );
-        
+
       case WidgetType.Gallery:
         return is_editing ? (
           <GalleryEditor
@@ -546,7 +526,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
             onDelete={() => handleDeleteWidget(widget.id, widget.type)}
           />
         );
-        
+
       default:
         return null;
     }
@@ -595,7 +575,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
           onCancel={handleCancelEdit}
         />
       )}
-      
+
       {isAddingNew && selectedWidgetType === WidgetType.Agents && (
         <AgentsEditor
           data={{
@@ -607,7 +587,7 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
           onCancel={handleCancelEdit}
         />
       )}
-      
+
       {isAddingNew && selectedWidgetType === WidgetType.Gallery && (
         <GalleryEditor
           data={{
@@ -704,13 +684,13 @@ export function WidgetManager({ initialShowAddNew = false }: WidgetManagerProps)
 
       {/* Widgets list with DnD */}
       {widgetsWithData.length > 0 ? (
-        <WidgetDndProvider 
+        <WidgetDndProvider
           widgets={activeWidgets}
           widgetsData={widgetsDataMap}
           onReorderWidgets={handleReorderWidgets}
         >
           <div className="space-y-4">
-            {widgetsWithData.map(({ widget, data, type }) => 
+            {widgetsWithData.map(({ widget, data, type }) =>
               renderWidget(widget, data, type)
             )}
           </div>

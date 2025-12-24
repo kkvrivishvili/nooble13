@@ -2,16 +2,17 @@
 import { createContext, useContext, ReactNode, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profileApi } from '@/api/profile-api';
-import { 
-  ProfileWithAgents, 
-  ProfileUpdatePayload, 
-  ProfileLink, 
-  SocialLink, 
-  ProfileContextType, 
+import {
+  ProfileWithAgents,
+  ProfileUpdatePayload,
+  ProfileLink,
+  SocialLink,
+  ProfileContextType,
   SyncStatus,
   Widget,
   Agent
 } from '@/types/profile';
+import { agentsApi } from '@/api/agents-api';
 import { supabase } from '@/lib/supabase';
 
 // 1. Context Definition
@@ -29,7 +30,7 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((event: string, _session: any) => {
       if (event === 'SIGNED_OUT') {
         queryClient.clear();
       }
@@ -42,27 +43,8 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
     queryKey: ['myProfile'],
     queryFn: async () => {
       const profile = await profileApi.getMyProfile();
-      
-      // TEMPORARY FIX: Auto-sync widgets if needed
-      if (profile) {
-        const hasWidgetData = (profile.linkWidgets && profile.linkWidgets.length > 0) || 
-                             (profile.agentWidgets && profile.agentWidgets.length > 0);
-        const hasWidgetEntries = profile.widgets && profile.widgets.length > 0;
-        
-        if (hasWidgetData && !hasWidgetEntries) {
-          console.log('🔄 Auto-syncing widgets for profile:', profile.id);
-          try {
-            await profileApi.syncProfileWidgets(profile.id);
-            // Refetch profile to get updated widgets array
-            return await profileApi.getMyProfile();
-          } catch (syncError) {
-            console.error('❌ Widget sync failed:', syncError);
-            // Return original profile even if sync fails
-            return profile;
-          }
-        }
-      }
-      
+
+      // V6.0: syncProfileWidgets is no longer needed as widgets are stored in direct tables
       return profile;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
@@ -71,18 +53,18 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
 
   const updateProfileMutation = useMutation({
     mutationFn: (payload: ProfileUpdatePayload) => profileApi.updateProfile(payload),
-    onMutate: async (newPayload) => {
+    onMutate: async (newPayload: ProfileUpdatePayload) => {
       await queryClient.cancelQueries({ queryKey: ['myProfile'] });
       const previousProfile = queryClient.getQueryData<ProfileWithAgents>(['myProfile']);
-      
-      queryClient.setQueryData<ProfileWithAgents | null>(['myProfile'], (old) => {
+
+      queryClient.setQueryData<ProfileWithAgents | null>(['myProfile'], (old: ProfileWithAgents | undefined) => {
         if (!old) return null;
         return { ...old, ...newPayload };
       });
-      
+
       return { previousProfile };
     },
-    onError: (_err, _newPayload, context) => {
+    onError: (_err: any, _newPayload: ProfileUpdatePayload, context: any) => {
       queryClient.setQueryData(['myProfile'], context?.previousProfile);
     },
     onSettled: () => {
@@ -104,32 +86,38 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
   };
 
   // Link widget management
-  const addLinkWidget = async (link: Omit<ProfileLink, 'id' | 'created_at' | 'profile_id'>) => {
+  const addLinkWidget = async (link: Omit<ProfileLink, 'id' | 'created_at' | 'user_id' | 'position' | 'is_active' | 'updated_at'>) => {
     if (!profile) return;
-    
+
     await profileApi.createLinkWidget(profile.id, link);
     await refreshProfile();
   };
 
   const updateLinkWidget = async (id: string, data: Partial<Omit<ProfileLink, 'id'>>) => {
     if (!profile) return;
-    
+
     await profileApi.updateLinkWidget(id, data);
     await refreshProfile();
   };
 
   const removeLinkWidget = async (id: string) => {
     if (!profile) return;
-    
+
     await profileApi.deleteWidget(profile.id, id, 'link');
     await refreshProfile();
   };
 
   const reorderWidgets = async (widgets: Widget[]) => {
     if (!profile) return;
-    
-    const widgetIds = widgets.map(w => w.id);
-    await profileApi.reorderWidgets(profile.id, widgetIds);
+
+    // V6.0: Map to the format expected by the API {id, type, position}
+    const reorderPayload = widgets.map((w, index) => ({
+      id: w.id,
+      type: w.type,
+      position: index
+    }));
+
+    await profileApi.reorderWidgets(profile.id, reorderPayload);
     await refreshProfile();
   };
 
@@ -142,7 +130,7 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
 
   const updateSocialLink = (platform: string, data: Partial<Omit<SocialLink, 'platform'>>) => {
     if (!profile) return;
-    const updatedSocials = profile.social_links.map((sl: SocialLink) => 
+    const updatedSocials = profile.social_links.map((sl: SocialLink) =>
       sl.platform === platform ? { ...sl, ...data } : sl
     );
     updateProfileMutation.mutate({ social_links: updatedSocials });
@@ -150,7 +138,7 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
 
   const removeSocialLink = (platform: string) => {
     if (!profile) return;
-    const updatedSocials = profile.social_links.filter((sl: SocialLink) => 
+    const updatedSocials = profile.social_links.filter((sl: SocialLink) =>
       sl.platform !== platform
     );
     updateProfileMutation.mutate({ social_links: updatedSocials });
@@ -158,19 +146,18 @@ export const ProfileProvider = ({ children }: ProfileProviderProps) => {
 
   // Agent management
   const createAgent = async (templateId: string, name?: string): Promise<Agent> => {
-    const agent = await profileApi.createAgentFromTemplate(templateId, name);
+    const agent = await agentsApi.createAgentFromTemplate(templateId, name);
     await refreshProfile();
     return agent;
   };
 
   const updateAgent = async (agentId: string, data: Partial<Agent>) => {
-    await profileApi.updateAgent(agentId, data);
+    await agentsApi.updateAgent(agentId, data as any);
     await refreshProfile();
   };
 
   const deleteAgent = async (agentId: string) => {
-    if (!profile) return;
-    await profileApi.deleteAgent(profile.id, agentId);
+    await agentsApi.deleteAgent(agentId);
     await refreshProfile();
   };
 

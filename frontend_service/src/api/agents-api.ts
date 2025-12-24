@@ -38,7 +38,7 @@ class AgentsAPI {
    */
   async getUserAgents(): Promise<Agent[]> {
     const userId = await getUserId();
-    
+
     const { data, error } = await supabase
       .from('agents_with_prompt') // Using the view to get system_prompt
       .select('*')
@@ -88,7 +88,7 @@ class AgentsAPI {
    * Create agent from template
    */
   async createAgentFromTemplate(
-    templateId: string, 
+    templateId: string,
     customName?: string
   ): Promise<Agent> {
     const userId = await getUserId();
@@ -173,9 +173,6 @@ class AgentsAPI {
 
     handleApiError(error, 'createCustomAgent');
 
-    // Add agent to user's profile
-    await this.addAgentToProfile(data.id);
-
     return data;
   }
 
@@ -183,7 +180,7 @@ class AgentsAPI {
    * Update agent
    */
   async updateAgent(
-    agentId: string, 
+    agentId: string,
     updates: Partial<Pick<Agent, 'name' | 'description' | 'icon' | 'system_prompt_override' | 'is_public' | 'is_active'>>
   ): Promise<Agent> {
     const userId = await getUserId();
@@ -218,9 +215,6 @@ class AgentsAPI {
       throw new Error('Agent not found or access denied');
     }
 
-    // Remove from profile first
-    await this.removeAgentFromProfile(agentId);
-
     // Delete the agent (cascade will handle related data)
     const { error } = await supabase
       .from('agents')
@@ -249,7 +243,7 @@ class AgentsAPI {
   async duplicateAgent(agentId: string, newName?: string): Promise<Agent> {
     const userId = await getUserId();
     const originalAgent = await this.getAgentById(agentId);
-    
+
     if (!originalAgent || originalAgent.user_id !== userId) {
       throw new Error('Agent not found or access denied');
     }
@@ -275,9 +269,6 @@ class AgentsAPI {
       .single();
 
     handleApiError(error, 'duplicateAgent');
-
-    // Add to profile
-    await this.addAgentToProfile(data.id);
 
     return data;
   }
@@ -316,64 +307,6 @@ class AgentsAPI {
   }
 
   /**
-   * Private helper: Add agent to user's profile
-   */
-  private async addAgentToProfile(agentId: string): Promise<void> {
-    const userId = await getUserId();
-
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('agents')
-      .eq('id', userId)
-      .single();
-
-    handleApiError(fetchError, 'addAgentToProfile - fetch');
-
-    const currentAgents = (profile.agents || []) as string[];
-    if (!currentAgents.includes(agentId)) {
-      const updatedAgents = [...currentAgents, agentId];
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ 
-          agents: updatedAgents,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userId);
-
-      handleApiError(updateError, 'addAgentToProfile - update');
-    }
-  }
-
-  /**
-   * Private helper: Remove agent from user's profile
-   */
-  private async removeAgentFromProfile(agentId: string): Promise<void> {
-    const userId = await getUserId();
-
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('agents')
-      .eq('id', userId)
-      .single();
-
-    handleApiError(fetchError, 'removeAgentFromProfile - fetch');
-
-    const currentAgents = (profile.agents || []) as string[];
-    const updatedAgents = currentAgents.filter(id => id !== agentId);
-
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ 
-        agents: updatedAgents,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId);
-
-    handleApiError(updateError, 'removeAgentFromProfile - update');
-  }
-
-  /**
    * Get agent statistics for dashboard
    */
   async getAgentStats(agentId: string): Promise<{
@@ -389,17 +322,17 @@ class AgentsAPI {
       throw new Error('Agent not found or access denied');
     }
 
-    // Get conversation count - FIXED: Use snake_case
-    const { count: conversationCount, error: convError } = await supabase
+    // Get conversation count
+    const { count: conversationCount } = await supabase
       .from('conversations')
       .select('*', { count: 'exact', head: true })
       .eq('agent_id', agentId);
 
-    // Get message count and last used - FIXED: Use snake_case
-    const { data: messageStats, error: msgError } = await supabase
+    // Get message count and last used
+    const { data: messageStats } = await supabase
       .from('messages')
       .select('created_at')
-      .in('conversation_id', 
+      .in('conversation_id',
         supabase
           .from('conversations')
           .select('id')

@@ -1,4 +1,5 @@
 // src/types/widget.ts
+import React from 'react';
 import { IconComponent } from './profile';
 
 // Base widget interface
@@ -103,7 +104,7 @@ export interface TitleWidgetData {
 }
 
 // Union type for all widget data
-export type AnyWidgetData = 
+export type AnyWidgetData =
   | LinkWidgetData
   | AgentsWidgetData
   | GalleryWidgetData
@@ -131,6 +132,7 @@ export interface ValidationResult {
 
 // Widget component props
 export interface WidgetComponentProps<T = unknown> {
+  key?: string | number;
   widget: Widget;
   data: T;
   is_editing: boolean;
@@ -140,6 +142,7 @@ export interface WidgetComponentProps<T = unknown> {
 }
 
 export interface WidgetEditorProps<T = unknown> {
+  key?: string | number;
   data?: T;
   onSave: (data: T) => Promise<void>;
   onCancel: () => void;

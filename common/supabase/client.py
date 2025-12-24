@@ -16,7 +16,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from ..config.base_settings import CommonAppSettings
 from ..models.config_models import ExecutionConfig, QueryConfig, RAGConfig
-from .models import AgentConfig, TenantInfo, UserInfo
+from .models import AgentConfig, UserInfo, SubscriptionInfo, UsageMetrics
 from .types import SupabaseResponse, SupabaseError
 
 
@@ -269,41 +269,33 @@ class SupabaseClient:
         
         return normalized
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
-    async def get_tenant_info(self, tenant_id: str) -> Optional[TenantInfo]:
+    async def get_subscription_info(self, user_id: str) -> Optional[SubscriptionInfo]:
         """
-        Obtiene información básica de un tenant.
-        Método genérico sin cache.
+        Obtiene información de suscripción de un usuario.
         
         Args:
-            tenant_id: ID del tenant
+            user_id: ID del usuario
             
         Returns:
-            TenantInfo o None si no se encuentra
+            SubscriptionInfo o None si no se encuentra
         """
         try:
             response = await asyncio.to_thread(
-                lambda: self.client.table('tenants')
-                .select('id, name, plan_type, settings, created_at, updated_at')
-                .eq('id', tenant_id)
-                .single()
+                lambda: self.client.rpc('get_user_subscription', {'p_user_id': user_id})
                 .execute()
             )
             
             if not response.data:
-                self.logger.warning(f"Tenant not found: {tenant_id}")
+                self.logger.warning(f"Subscription not found for user: {user_id}")
                 return None
             
-            tenant_info = TenantInfo(**response.data)
-            self.logger.debug(f"Tenant info loaded for {tenant_id}")
-            return tenant_info
+            sub_info = SubscriptionInfo(**response.data[0])
+            self.logger.debug(f"Subscription info loaded for user {user_id}")
+            return sub_info
             
         except Exception as e:
-            self.logger.error(f"Error getting tenant info for {tenant_id}: {str(e)}")
-            raise SupabaseError(f"Failed to get tenant info: {str(e)}")
+            self.logger.error(f"Error getting subscription info for {user_id}: {str(e)}")
+            return None
     
     
     # Authentication Methods
@@ -382,31 +374,31 @@ class SupabaseClient:
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
     
-    async def check_tenant_membership(self, user_id: str, tenant_id: str) -> bool:
+    async def check_user_limit(self, user_id: str, resource_type: str) -> bool:
         """
-        Verifica si un usuario pertenece a un tenant.
+        Verifica si un usuario ha alcanzado sus límites para un recurso.
         
         Args:
             user_id: ID del usuario
-            tenant_id: ID del tenant
+            resource_type: Tipo de recurso (agents, documents, etc.)
             
         Returns:
-            bool: True si el usuario pertenece al tenant
+            bool: True si el usuario tiene capacidad disponible
         """
         try:
             response = await asyncio.to_thread(
-                lambda: self.client.table('user_tenants')
-                .select('id')
-                .eq('user_id', user_id)
-                .eq('tenant_id', tenant_id)
-                .single()
-                .execute()
+                lambda: self.client.rpc(
+                    'check_resource_limit',
+                    {'p_user_id': user_id, 'p_resource_type': resource_type}
+                ).execute()
             )
             
-            return response.data is not None
+            if response.data:
+                return response.data[0].get('allowed', False)
+            return False
             
         except Exception as e:
-            self.logger.error(f"Error checking tenant membership: {str(e)}")
+            self.logger.error(f"Error checking user limit: {str(e)}")
             return False
     
 
@@ -527,7 +519,7 @@ class SupabaseClient:
                     client_to_use
                     .table("documents_rag")
                     .select("collection_id")
-                    .eq("tenant_id", query_tenant_id)
+                    .eq("user_id", query_tenant_id)
                     .execute()
                 )
             

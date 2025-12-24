@@ -110,7 +110,8 @@ class ConversationWorker(BaseWorker):
                     user_message=data.get("user_message"),
                     agent_message=data.get("agent_message"),
                     message_id=data.get("message_id"),
-                    metadata=data.get("metadata")
+                    metadata=data.get("metadata"),
+                    usage=data.get("usage")
                 )
                 
                 if result.get("success"):

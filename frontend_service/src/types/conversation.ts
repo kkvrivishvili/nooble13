@@ -1,7 +1,7 @@
 // src/types/conversation.ts
 export interface Conversation {
     id: string;
-    tenant_id: string;
+    user_id: string;
     session_id: string;
     agent_id: string;
     visitor_info: {
@@ -12,7 +12,7 @@ export interface Conversation {
     };
     started_at: string;
     ended_at?: string | null;
-    is_active: boolean;
+    status: 'active' | 'closed' | 'archived';
     message_count: number;
     last_message_at: string;
   }
@@ -20,8 +20,12 @@ export interface Conversation {
   export interface Message {
     id: string;
     conversation_id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
     content: string;
+    tokens_input?: number;
+    tokens_output?: number;
+    model?: string;
+    latency_ms?: number;
     metadata: Record<string, any>;
     created_at: string;
   }

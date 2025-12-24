@@ -499,6 +499,7 @@ services:
     ports:
       - 80:80
       - 443:443
+
       - 443:443/udp
     depends_on:
       kong:
@@ -638,7 +639,7 @@ services:
       # Supabase configuration
       - SUPABASE_URL=http://kong:8000
       - SUPABASE_ANON_KEY=${ANON_KEY}
-      #- SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
+      - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
       - JWT_SECRET=${JWT_SECRET}
       # Redis configuration
       - REDIS_HOST=redis_database

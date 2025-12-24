@@ -27,16 +27,16 @@ class ConversationAPI {
   }
 
   /**
-   * Get conversations by tenant (user)
+   * Get conversations by user
    */
-  async getConversationsByTenant(tenantId: string): Promise<Conversation[]> {
+  async getConversationsByUser(userId: string): Promise<Conversation[]> {
     const { data, error } = await supabase
       .from('conversations')
       .select('*')
-      .eq('tenant_id', tenantId)
+      .eq('user_id', userId)
       .order('started_at', { ascending: false });
 
-    handleApiError(error, 'getConversationsByTenant');
+    handleApiError(error, 'getConversationsByUser');
     return data || [];
   }
 
@@ -76,8 +76,8 @@ class ConversationAPI {
    * Create a new message
    */
   async createMessage(
-    conversationId: string, 
-    content: string, 
+    conversationId: string,
+    content: string,
     role: 'user' | 'assistant',
     metadata?: Record<string, any>
   ): Promise<Message> {
@@ -100,7 +100,7 @@ class ConversationAPI {
    * Create a new conversation
    */
   async createConversation(
-    tenantId: string,
+    userId: string,
     sessionId: string,
     agentId: string,
     visitorInfo?: Partial<Conversation['visitor_info']>
@@ -108,8 +108,8 @@ class ConversationAPI {
     const { data, error } = await supabase
       .from('conversations')
       .insert({
-        id: await this.generateConversationId(tenantId, sessionId, agentId),
-        tenant_id: tenantId,
+        id: await this.generateConversationId(userId, sessionId, agentId),
+        user_id: userId,
         session_id: sessionId,
         agent_id: agentId,
         visitor_info: visitorInfo || {}
@@ -128,7 +128,7 @@ class ConversationAPI {
     const { error } = await supabase
       .from('conversations')
       .update({
-        is_active: false,
+        status: 'closed',
         ended_at: new Date().toISOString()
       })
       .eq('id', conversationId);
@@ -151,7 +151,7 @@ class ConversationAPI {
     }
 
     const messages = await this.getMessages(conversationId);
-    
+
     const userMessages = messages.filter(m => m.role === 'user').length;
     const assistantMessages = messages.filter(m => m.role === 'assistant').length;
 
@@ -175,13 +175,13 @@ class ConversationAPI {
    * Private helper: Generate deterministic conversation ID
    */
   private async generateConversationId(
-    tenantId: string,
+    userId: string,
     sessionId: string,
     agentId: string
   ): Promise<string> {
     const { data, error } = await supabase
       .rpc('generate_conversation_id', {
-        p_tenant_id: tenantId,
+        p_user_id: userId,
         p_session_id: sessionId,
         p_agent_id: agentId
       });

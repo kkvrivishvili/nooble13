@@ -2,26 +2,23 @@
 // This version uses correct snake_case table names
 
 import { supabase } from '@/lib/supabase';
-import { 
-  Profile, 
-  ProfileWithAgents, 
-  ProfileUpdatePayload, 
+import {
+  Profile,
+  ProfileWithAgents,
+  ProfileUpdatePayload,
   ProfileLink,
-  Widget,
-  WidgetAgents,
-  WidgetGallery
 } from '@/types/profile';
 
 class ProfileAPI {
   /**
    * Get the current user's profile with all related data
-   * Note: Agent details are fetched but not managed here
+   * V6.0: Widgets are queried directly from tables using user_id
    */
   async getMyProfile(): Promise<ProfileWithAgents | null> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    // Get base profile
+    // Get base profile (no longer contains widgets/agents arrays)
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -32,41 +29,42 @@ class ProfileAPI {
       return null;
     }
 
-    // Ensure widgets are sorted by position - using slice() to avoid mutation
-    const widgets = (profile.widgets || []) as Widget[];
-    const sortedWidgets = widgets.length > 0 
-      ? widgets.slice().sort((a, b) => a.position - b.position) 
-      : [];
+    // Get agents directly from agents table
+    const { data: agentDetails } = await supabase
+      .from('agents_with_prompt')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
 
-    // Get agents details (READ-ONLY - use agents-api for modifications)
-    const agentIds = (profile.agents || []) as string[];
-    let agentDetails = [];
-    
-    if (agentIds.length > 0) {
-      const { data: agents, error: agentsError } = await supabase
-        .from('agents_with_prompt') // Using the view to get system_prompt
-        .select('*')
-        .in('id', agentIds);
+    // Fetch all widget data using the V6 RPC function
+    const { data: allWidgets, error: widgetsError } = await supabase
+      .rpc('get_user_widgets_ordered', {
+        p_user_id: user.id,
+        p_active_only: false // Get all for management
+      });
 
-      if (!agentsError && agents) {
-        agentDetails = agents;
-      }
+    if (widgetsError) {
+      console.error('Error fetching widgets via RPC:', widgetsError);
     }
 
-    // Get all widget data based on active widgets
-    const activeWidgets = sortedWidgets.filter((w: Widget) => w.is_active);
-    
-    // Separate widget IDs by type
-    const widgetIdsByType = activeWidgets.reduce((acc, widget) => {
-      if (!acc[widget.type]) {
-        acc[widget.type] = [];
-      }
-      acc[widget.type].push(widget.id);
-      return acc;
-    }, {} as Record<string, string[]>);
+    // Map the unified list into specific arrays for the frontend
+    const widgets = allWidgets || [];
 
-    // Fetch all widget data in parallel - RLS policies handle access control
-    const [
+    const linkWidgets = widgets.filter((w: any) => w.widget_type === 'link').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const agentWidgets = widgets.filter((w: any) => w.widget_type === 'agents').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const galleryWidgets = widgets.filter((w: any) => w.widget_type === 'gallery').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const youtubeWidgets = widgets.filter((w: any) => w.widget_type === 'youtube').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const mapsWidgets = widgets.filter((w: any) => w.widget_type === 'maps').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const spotifyWidgets = widgets.filter((w: any) => w.widget_type === 'spotify').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const calendarWidgets = widgets.filter((w: any) => w.widget_type === 'calendar').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const separatorWidgets = widgets.filter((w: any) => w.widget_type === 'separator').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+    const titleWidgets = widgets.filter((w: any) => w.widget_type === 'title').map((w: any) => ({ ...w.data, id: w.id, position: w.position, is_active: w.is_active, created_at: w.created_at, updated_at: w.updated_at }));
+
+    // Construct the full profile
+    const fullProfile: ProfileWithAgents = {
+      ...profile,
+      agentDetails: agentDetails || [],
       linkWidgets,
       agentWidgets,
       galleryWidgets,
@@ -76,79 +74,6 @@ class ProfileAPI {
       calendarWidgets,
       separatorWidgets,
       titleWidgets
-    ] = await Promise.all([
-      // Link widgets
-      widgetIdsByType.link?.length > 0
-        ? supabase.from('widget_links').select('*').in('id', widgetIdsByType.link)
-        : Promise.resolve({ data: [] }),
-      
-      // Agent widgets
-      widgetIdsByType.agents?.length > 0
-        ? supabase.from('widget_agents').select('*').in('id', widgetIdsByType.agents)
-        : Promise.resolve({ data: [] }),
-      
-      // Gallery widgets
-      widgetIdsByType.gallery?.length > 0
-        ? supabase.from('widget_gallery').select('*').in('id', widgetIdsByType.gallery)
-        : Promise.resolve({ data: [] }),
-      
-      // YouTube widgets
-      widgetIdsByType.youtube?.length > 0
-        ? supabase.from('widget_youtube').select('*').in('id', widgetIdsByType.youtube)
-        : Promise.resolve({ data: [] }),
-      
-      // Maps widgets
-      widgetIdsByType.maps?.length > 0
-        ? supabase.from('widget_maps').select('*').in('id', widgetIdsByType.maps)
-        : Promise.resolve({ data: [] }),
-      
-      // Spotify widgets
-      widgetIdsByType.spotify?.length > 0
-        ? supabase.from('widget_spotify').select('*').in('id', widgetIdsByType.spotify)
-        : Promise.resolve({ data: [] }),
-      
-      // Calendar widgets
-      widgetIdsByType.calendar?.length > 0
-        ? supabase.from('widget_calendar').select('*').in('id', widgetIdsByType.calendar)
-        : Promise.resolve({ data: [] }),
-      
-      // Separator widgets
-      widgetIdsByType.separator?.length > 0
-        ? supabase.from('widget_separator').select('*').in('id', widgetIdsByType.separator)
-        : Promise.resolve({ data: [] }),
-      
-      // Title widgets
-      widgetIdsByType.title?.length > 0
-        ? supabase.from('widget_title').select('*').in('id', widgetIdsByType.title)
-        : Promise.resolve({ data: [] })
-    ]);
-
-    // Sort widget data according to widget order
-    const sortWidgetData = <T extends { id: string }>(
-      widgetData: T[] | null,
-      widgetIds: string[]
-    ): T[] => {
-      if (!widgetData || !widgetIds) return [];
-      const dataMap = new Map(widgetData.map(item => [item.id, item]));
-      return widgetIds
-        .map(id => dataMap.get(id))
-        .filter((item): item is T => item !== undefined);
-    };
-
-    // Construct the full profile
-    const fullProfile: ProfileWithAgents = {
-      ...profile,
-      widgets: sortedWidgets,
-      agentDetails,
-      linkWidgets: sortWidgetData(linkWidgets.data, widgetIdsByType.link || []),
-      agentWidgets: sortWidgetData(agentWidgets.data, widgetIdsByType.agents || []),
-      galleryWidgets: sortWidgetData(galleryWidgets.data, widgetIdsByType.gallery || []),
-      youtubeWidgets: sortWidgetData(youtubeWidgets.data, widgetIdsByType.youtube || []),
-      mapsWidgets: sortWidgetData(mapsWidgets.data, widgetIdsByType.maps || []),
-      spotifyWidgets: sortWidgetData(spotifyWidgets.data, widgetIdsByType.spotify || []),
-      calendarWidgets: sortWidgetData(calendarWidgets.data, widgetIdsByType.calendar || []),
-      separatorWidgets: sortWidgetData(separatorWidgets.data, widgetIdsByType.separator || []),
-      titleWidgets: sortWidgetData(titleWidgets.data, widgetIdsByType.title || [])
     };
 
     return fullProfile;
@@ -161,7 +86,7 @@ class ProfileAPI {
    */
   async getProfileByUsername(username: string): Promise<ProfileWithAgents | null> {
     console.warn('⚠️ profileApi.getProfileByUsername() is deprecated. Use publicProfileApi.getPublicProfile() instead.');
-    
+
     // Import and use the dedicated public profile API
     const { publicProfileApi } = await import('./public-profile-api');
     return publicProfileApi.getPublicProfile(username);
@@ -220,22 +145,28 @@ class ProfileAPI {
 
   /**
    * Create a new link widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createLinkWidget(profileId: string, link: Omit<ProfileLink, 'id' | 'created_at' | 'profile_id'>): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'link',
-        p_widget_data: {
-          title: link.title,
-          url: link.url,
-          description: link.description,
-          icon: link.icon
-        }
-      });
+  async createLinkWidget(userId: string, link: Omit<ProfileLink, 'id' | 'created_at' | 'user_id' | 'position' | 'is_active' | 'updated_at'>): Promise<string> {
+    // Get next position
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_link')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        title: link.title,
+        url: link.url,
+        description: link.description,
+        icon: link.icon
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -243,7 +174,7 @@ class ProfileAPI {
    */
   async updateLinkWidget(widgetId: string, data: Partial<ProfileLink>): Promise<void> {
     const { error } = await supabase
-      .from('widget_links')
+      .from('widget_link')
       .update(data)
       .eq('id', widgetId);
 
@@ -251,57 +182,44 @@ class ProfileAPI {
   }
 
   /**
-   * Delete a widget (removes from profile.widgets and widget table)
+   * Delete a widget from its table
+   * V6.0: Widgets are deleted directly, no profiles.widgets to update
    */
-  async deleteWidget(profileId: string, widgetId: string, _widgetType: string): Promise<void> {
-    // First, remove from profile.widgets array
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('widgets')
-      .eq('id', profileId)
-      .single();
+  async deleteWidget(userId: string, widgetId: string, widgetType: string): Promise<void> {
+    const tableName = `widget_${widgetType === 'agents' ? 'agents' : widgetType}`;
 
-    if (fetchError) throw fetchError;
+    const { error } = await supabase
+      .from(tableName)
+      .delete()
+      .eq('id', widgetId)
+      .eq('user_id', userId);
 
-    const widgets = (profile.widgets || []) as Widget[];
-    const updatedWidgets = widgets.filter((w: Widget) => w.id !== widgetId);
-    
-    // Recalculate positions to ensure continuous sequence
-    const reorderedWidgets = updatedWidgets.map((w, index) => ({
-      ...w,
-      position: index
-    }));
-
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ 
-        widgets: reorderedWidgets,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', profileId);
-
-    if (updateError) throw updateError;
-
-    // Widget data will be cascade deleted automatically
+    if (error) throw error;
   }
 
   /**
-   * Reorder widgets
+   * Reorder widgets by updating their position field
+   * V6.0: Updates position directly in widget tables
    */
-  async reorderWidgets(profileId: string, widgetIds: string[]): Promise<void> {
-    const { error } = await supabase
-      .rpc('reorder_widgets', {
-        p_profile_id: profileId,
-        p_widget_ids: widgetIds
-      });
+  async reorderWidgets(userId: string, widgets: { id: string; type: string; position: number }[]): Promise<void> {
+    // Update each widget's position
+    for (const widget of widgets) {
+      const tableName = `widget_${widget.type === 'agents' ? 'agents' : widget.type}`;
 
-    if (error) throw error;
+      const { error } = await supabase
+        .from(tableName)
+        .update({ position: widget.position })
+        .eq('id', widget.id)
+        .eq('user_id', userId);
+
+      if (error) throw error;
+    }
   }
 
   // ============================================
   // REMOVED AGENT METHODS - USE agents-api.ts INSTEAD
   // ============================================
-  
+
   /**
    * @deprecated Use agentsApi.createAgentFromTemplate() instead
    */
@@ -336,25 +254,30 @@ class ProfileAPI {
 
   /**
    * Create a new agents widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createAgentsWidget(profileId: string, agentsData: {
+  async createAgentsWidget(userId: string, agentsData: {
     title: string;
     agent_ids: string[];
     display_style: 'card' | 'list' | 'bubble';
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'agents',
-        p_widget_data: {
-          title: agentsData.title,
-          agent_ids: agentsData.agent_ids,
-          display_style: agentsData.display_style
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_agents')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        title: agentsData.title,
+        agent_ids: agentsData.agent_ids,
+        display_style: agentsData.display_style
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -380,29 +303,34 @@ class ProfileAPI {
 
   /**
    * Create a new gallery widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createGalleryWidget(profileId: string, gallery: {
+  async createGalleryWidget(userId: string, gallery: {
     title?: string;
     products: string[];
     show_price?: boolean;
     show_description?: boolean;
     columns?: number;
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'gallery',
-        p_widget_data: {
-          title: gallery.title || '',
-          products: gallery.products || [],
-          show_price: gallery.show_price ?? true,
-          show_description: gallery.show_description ?? true,
-          columns: gallery.columns || 3
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_gallery')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        title: gallery.title || '',
+        products: gallery.products || [],
+        show_price: gallery.show_price ?? true,
+        show_description: gallery.show_description ?? true,
+        columns: gallery.columns || 3
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -432,27 +360,32 @@ class ProfileAPI {
 
   /**
    * Create a new YouTube widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createYouTubeWidget(profileId: string, youtube: {
+  async createYouTubeWidget(userId: string, youtube: {
     video_url: string;
     title?: string;
     autoplay?: boolean;
     show_controls?: boolean;
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'youtube',
-        p_widget_data: {
-          video_url: youtube.video_url,
-          title: youtube.title || '',
-          autoplay: youtube.autoplay ?? false,
-          show_controls: youtube.show_controls ?? true
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_youtube')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        video_url: youtube.video_url,
+        title: youtube.title || '',
+        autoplay: youtube.autoplay ?? false,
+        show_controls: youtube.show_controls ?? true
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -474,29 +407,34 @@ class ProfileAPI {
 
   /**
    * Create a new Maps widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createMapsWidget(profileId: string, maps: {
+  async createMapsWidget(userId: string, maps: {
     address: string;
     latitude?: number;
     longitude?: number;
     zoom_level?: number;
     map_style?: string;
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'maps',
-        p_widget_data: {
-          address: maps.address,
-          latitude: maps.latitude,
-          longitude: maps.longitude,
-          zoom_level: maps.zoom_level || 15,
-          map_style: maps.map_style || 'roadmap'
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_map')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        address: maps.address,
+        latitude: maps.latitude,
+        longitude: maps.longitude,
+        zoom_level: maps.zoom_level || 15,
+        map_style: maps.map_style || 'roadmap'
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -510,7 +448,7 @@ class ProfileAPI {
     map_style?: string;
   }): Promise<void> {
     const { error } = await supabase
-      .from('widget_maps')
+      .from('widget_map')
       .update(data)
       .eq('id', widgetId);
 
@@ -519,27 +457,32 @@ class ProfileAPI {
 
   /**
    * Create a new Spotify widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createSpotifyWidget(profileId: string, spotify: {
+  async createSpotifyWidget(userId: string, spotify: {
     spotify_url: string;
     embed_type?: 'track' | 'playlist' | 'album' | 'artist';
     height?: number;
     theme?: 'dark' | 'light';
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'spotify',
-        p_widget_data: {
-          spotify_url: spotify.spotify_url,
-          embed_type: spotify.embed_type || 'playlist',
-          height: spotify.height || 380,
-          theme: spotify.theme || 'dark'
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_spotify')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        spotify_url: spotify.spotify_url,
+        embed_type: spotify.embed_type || 'playlist',
+        height: spotify.height || 380,
+        theme: spotify.theme || 'dark'
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -561,27 +504,32 @@ class ProfileAPI {
 
   /**
    * Create a new Calendar widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createCalendarWidget(profileId: string, calendar: {
+  async createCalendarWidget(userId: string, calendar: {
     calendly_url: string;
     title?: string;
     hide_event_details?: boolean;
     hide_cookie_banner?: boolean;
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'calendar',
-        p_widget_data: {
-          calendly_url: calendar.calendly_url,
-          title: calendar.title || 'Schedule a meeting',
-          hide_event_details: calendar.hide_event_details ?? false,
-          hide_cookie_banner: calendar.hide_cookie_banner ?? true
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_calendar')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        calendly_url: calendar.calendly_url,
+        title: calendar.title || 'Schedule a meeting',
+        hide_event_details: calendar.hide_event_details ?? false,
+        hide_cookie_banner: calendar.hide_cookie_banner ?? true
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -603,29 +551,34 @@ class ProfileAPI {
 
   /**
    * Create a new Separator widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createSeparatorWidget(profileId: string, separator: {
+  async createSeparatorWidget(userId: string, separator: {
     style?: 'solid' | 'dashed' | 'dotted';
     thickness?: number;
     color?: string;
     margin_top?: number;
     margin_bottom?: number;
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'separator',
-        p_widget_data: {
-          style: separator.style || 'solid',
-          thickness: separator.thickness || 1,
-          color: separator.color || '#cccccc',
-          margin_top: separator.margin_top || 20,
-          margin_bottom: separator.margin_bottom || 20
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_separator')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        style: separator.style || 'solid',
+        thickness: separator.thickness || 1,
+        color: separator.color || '#cccccc',
+        margin_top: separator.margin_top || 20,
+        margin_bottom: separator.margin_bottom || 20
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
 
   /**
@@ -648,29 +601,33 @@ class ProfileAPI {
 
   /**
    * Create a new Title widget
+   * V6.0: Uses INSERT with user_id and position
    */
-  async createTitleWidget(profileId: string, title: {
+  async createTitleWidget(userId: string, title: {
     text: string;
     font_size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
     text_align?: 'left' | 'center' | 'right';
     font_weight?: 'normal' | 'medium' | 'semibold' | 'bold';
   }): Promise<string> {
-    const { data: widgetId, error } = await supabase
-      .rpc('create_widget', {
-        p_profile_id: profileId,
-        p_widget_type: 'title',
-        p_widget_data: {
-          text: title.text,
-          font_size: title.font_size || 'xl',
-          text_align: title.text_align || 'center',
-          font_weight: title.font_weight || 'bold'
-        }
-      });
+    const { data: nextPos } = await supabase.rpc('get_next_widget_position', { p_user_id: userId });
+
+    const { data, error } = await supabase
+      .from('widget_title')
+      .insert({
+        user_id: userId,
+        position: nextPos || 0,
+        is_active: true,
+        text: title.text,
+        font_size: title.font_size || 'xl',
+        text_align: title.text_align || 'center',
+        font_weight: title.font_weight || 'bold'
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
-    return widgetId;
+    return data.id;
   }
-
   /**
    * Update a Title widget
    */
@@ -686,81 +643,6 @@ class ProfileAPI {
       .eq('id', widgetId);
 
     if (error) throw error;
-  }
-
-  /**
-   * TEMPORARY FIX: Sync widgets for profiles where widgets exist in individual tables
-   * but are not registered in the profile.widgets array
-   */
-  async syncProfileWidgets(profileId: string): Promise<void> {
-    // Get current profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('widgets')
-      .eq('id', profileId)
-      .single();
-
-    if (profileError || !profile) {
-      throw new Error('Profile not found');
-    }
-
-    // If widgets array already has entries, skip sync
-    if (profile.widgets && profile.widgets.length > 0) {
-      return;
-    }
-
-    const widgetEntries = [];
-    let position = 0;
-
-    // Sync all widget types - RLS policies will handle filtering
-    const widgetTables = [
-      { table: 'widget_links', type: 'link' },
-      { table: 'widget_agents', type: 'agents' },
-      { table: 'widget_gallery', type: 'gallery' },
-      { table: 'widget_youtube', type: 'youtube' },
-      { table: 'widget_maps', type: 'maps' },
-      { table: 'widget_spotify', type: 'spotify' },
-      { table: 'widget_calendar', type: 'calendar' },
-      { table: 'widget_separator', type: 'separator' },
-      { table: 'widget_title', type: 'title' }
-    ];
-
-    for (const { table, type } of widgetTables) {
-      const { data: widgets } = await supabase
-        .from(table)
-        .select('id, created_at')
-        .order('created_at', { ascending: true });
-
-      if (widgets && widgets.length > 0) {
-        for (const widget of widgets) {
-          widgetEntries.push({
-            id: widget.id,
-            type: type,
-            position: position++,
-            is_active: true
-          });
-        }
-      }
-    }
-
-    // Update profile with synced widgets
-    if (widgetEntries.length > 0) {
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ 
-          widgets: widgetEntries,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', profileId);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      console.log(`✅ Synced ${widgetEntries.length} widgets to profile.widgets array`);
-    } else {
-      console.log('ℹ️ No widgets found to sync');
-    }
   }
 }
 
