@@ -11,6 +11,7 @@ Implementa:
 Usa una sola collection física con filtrado por metadata (multitenancy).
 """
 import logging
+import json
 from typing import List, Dict, Any, Optional
 import uuid
 
@@ -211,6 +212,13 @@ class QdrantHandler(BaseHandler):
                 self._logger.info(f"Generating sparse embeddings for {len(texts_for_bm25)} chunks...")
                 sparse_vectors_gen = self.sparse_embedding_model.embed(texts_for_bm25)
                 sparse_vectors = list(sparse_vectors_gen)
+                
+                # Log del primer texto BM25 generado para inspección
+                if texts_for_bm25:
+                    self._logger.debug(
+                        f"[AGNOSTIC] Sample BM25 Text (len: {len(texts_for_bm25[0])}):\n"
+                        f"{texts_for_bm25[0][:500]}..."
+                    )
             except Exception as e:
                 self._logger.error(f"Error generating sparse embeddings: {e}")
                 sparse_vectors = [None] * len(texts_for_bm25)
@@ -235,31 +243,35 @@ class QdrantHandler(BaseHandler):
                 # CAMPOS AGNÓSTICOS - Lo importante
                 # ============================================
                 
-                # Search Anchors - Estándar 1.16: se guardan como lista nativa
-                "search_anchors": chunk.search_anchors,
+                # Search Anchors - Asegurar lista nativa para JSON válido
+                "search_anchors": list(chunk.search_anchors or []),
                 
-                # Atomic Facts - Estándar 1.16: se guardan como lista nativa
-                "atomic_facts": chunk.atomic_facts,
+                # Atomic Facts - Asegurar lista nativa para JSON válido
+                "atomic_facts": list(chunk.atomic_facts or []),
                 
                 # Fact Density - para Score-Boosting
-                "fact_density": chunk.fact_density,
+                "fact_density": float(chunk.fact_density),
                 
                 # Document Nature - para filtrado
-                "document_nature": chunk.document_nature,
+                "document_nature": str(chunk.document_nature),
                 
                 # Normalized Entities - para filtrado estructurado
-                "normalized_entities": chunk.normalized_entities,
+                "normalized_entities": dict(chunk.normalized_entities or {}),
+
+                # ============================================
+                # METADATA ESTRUCTURAL (Qdrant 1.16 Standard)
+                # ============================================
+                "document_type": chunk.document_type,
+                "document_name": chunk.document_name,
+                "language": chunk.language,
+                "page_count": chunk.page_count,
+                "has_tables": chunk.has_tables,
                 
                 # ============================================
                 
                 # Legacy (para compatibilidad)
-                "keywords": chunk.keywords,
-                "tags": chunk.tags,
-                
-                # Metadata de embedding
-                "embedding_model": embedding_metadata.get("embedding_model"),
-                "embedding_dimensions": embedding_metadata.get("embedding_dimensions"),
-                "encoding_format": embedding_metadata.get("encoding_format", "float"),
+                "keywords": list(chunk.keywords or []),
+                "tags": list(chunk.tags or []),
                 
                 # Timestamps
                 "created_at": chunk.created_at.isoformat(),
@@ -268,17 +280,19 @@ class QdrantHandler(BaseHandler):
                 **chunk.metadata
             }
             
-            # Log del primer chunk como ejemplo
+            # Log del primer chunk como ejemplo (Mejorado para evitar sintaxis 0:)
             if i == 0:
+                self._logger.debug(
+                    f"[AGNOSTIC] Sample Payload JSON for chunk {chunk.chunk_id}:\n"
+                    f"{json.dumps(payload, indent=2, ensure_ascii=False)}"
+                )
                 self._logger.info(
-                    f"[AGNOSTIC] Sample payload",
+                    f"[AGNOSTIC] Prepared payload for {len(chunks)} chunks",
                     extra={
-                        "chunk_id": chunk.chunk_id,
-                        "fact_density": chunk.fact_density,
-                        "search_anchors_length": len(payload["search_anchors"]),
-                        "atomic_facts_length": len(payload["atomic_facts"]),
-                        "document_nature": chunk.document_nature,
-                        "has_normalized_entities": bool(chunk.normalized_entities)
+                        "sample_chunk_id": chunk.chunk_id,
+                        "document_name": chunk.document_name,
+                        "search_anchors_count": len(payload["search_anchors"]),
+                        "atomic_facts_count": len(payload["atomic_facts"])
                     }
                 )
             

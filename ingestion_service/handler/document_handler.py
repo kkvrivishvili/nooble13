@@ -352,19 +352,23 @@ class DocumentHandler(BaseHandler):
                 fact_density=enriched.fact_density,
                 document_nature=enriched.document_nature,
                 normalized_entities=enriched.normalized_entities,
+
+                # ============================================
+                # METADATA ESTRUCTURAL
+                # ============================================
+                document_type=doc_type_value,
+                document_name=request.document_name,
+                language=enriched.language or extraction_info.get("language", "es"),
+                page_count=extraction_info.get("page_count"),
+                has_tables=extraction_info.get("has_tables", False),
                 
                 # Legacy (menos importantes ahora)
                 keywords=[],  # Reemplazados por search_anchors
                 tags=[],      # Reemplazados por document_nature
                 
                 metadata={
-                    "document_name": request.document_name,
-                    "document_type": doc_type_value,
                     "extraction_method": extraction_info.get("method", "standard"),
-                    "has_tables": extraction_info.get("has_tables", False),
-                    "page_count": extraction_info.get("page_count", None),
                     "word_count": enriched.word_count,
-                    "language": enriched.language,
                     "contextual_prefix": enriched.contextual_prefix,
                     "preprocessing_used": True,
                     "preprocessing_model": getattr(self.app_settings, 'preprocessing_model', 'unknown'),
@@ -429,18 +433,23 @@ class DocumentHandler(BaseHandler):
                 fact_density=0.5,  # Valor por defecto
                 document_nature="other",
                 normalized_entities={},
+
+                # ============================================
+                # METADATA ESTRUCTURAL
+                # ============================================
+                document_type=doc_type_value,
+                document_name=request.document_name,
+                language=extraction_info.get("language", "es"),
+                page_count=extraction_info.get("page_count"),
+                has_tables=extraction_info.get("has_tables", False),
                 
                 keywords=[],
                 tags=[],
                 
                 metadata={
-                    "document_name": request.document_name,
-                    "document_type": doc_type_value,
                     "start_char_idx": raw_chunk.get("start_char_idx"),
                     "end_char_idx": raw_chunk.get("end_char_idx"),
                     "extraction_method": extraction_info.get("method", "standard"),
-                    "has_tables": extraction_info.get("has_tables", False),
-                    "page_count": extraction_info.get("page_count", None),
                     "word_count": len(raw_chunk["content"].split()),
                     "preprocessing_used": False,
                     **request.metadata

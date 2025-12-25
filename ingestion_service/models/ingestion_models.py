@@ -162,11 +162,20 @@ class ChunkModel(BaseModel):
         description="Tipo de documento (transactional, narrative, technical, etc.)"
     )
     
-    # Normalized Entities - Para filtrado estructurado
+    # Entidades normalizadas - Para filtrado estructurado
     normalized_entities: Dict[str, Any] = Field(
         default_factory=dict,
         description="Entidades normalizadas (person, organization, date, amount, location)"
     )
+
+    # ==========================================================================
+    # METADATA ESTRUCTURAL (Qdrant 1.16 Standard)
+    # ==========================================================================
+    document_type: str = Field(default="other")
+    document_name: str = Field(default="")
+    language: str = Field(default="es")
+    page_count: Optional[int] = Field(None)
+    has_tables: bool = Field(default=False)
     
     # ==========================================================================
     # CAMPOS LEGACY (para compatibilidad)
@@ -187,15 +196,33 @@ class ChunkModel(BaseModel):
     
     def get_bm25_text(self) -> str:
         """
-        Retorna texto optimizado para BM25/sparse embeddings.
-        Combina contenido + search_anchors + atomic_facts.
+        Retorna texto optimizado para BM25/sparse embeddings con Term Boosting.
+        Prioriza la información "pulida" por el LLM mediante repetición (TF).
         """
-        parts = [self.content]
+        parts = []
         
+        # BOOSTING LÓGICO:
+        # Repetimos la información más valiosa para que el algoritmo BM25
+        # (que usa Term Frequency) le asigne puntuaciones más altas a estos chunks
+        # cuando el usuario busque términos presentes en los anchors o facts.
+
+        # Boost x3: Search Anchors (Consultas sintéticas - Máxima relevancia)
         if self.search_anchors:
-            parts.append(" ".join(self.search_anchors))
+            anchors_text = " ".join(self.search_anchors)
+            parts.extend([anchors_text] * 3)
         
+        # Boost x2: Atomic Facts (Datos duros extraídos por LLM)
         if self.atomic_facts:
-            parts.append(" ".join(self.atomic_facts))
+            facts_text = " ".join(self.atomic_facts)
+            parts.extend([facts_text] * 2)
         
+        # Boost x1: Contenido original (Base de seguridad para términos técnicos)
+        # Usamos content_raw en lugar de content para evitar que el 
+        # contextual_prefix (que se repite en cada chunk) diluya los pesos IDF.
+        if self.content_raw:
+            parts.append(self.content_raw)
+        elif self.content:
+            # Si no hay raw, usamos el content (pero el LLM suele dar raw)
+            parts.append(self.content)
+            
         return " ".join(parts)
