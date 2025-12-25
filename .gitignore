@@ -24,7 +24,7 @@
 # Environment files
 .env
 .env.*
-.env.example
+#.env.example
 
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
@@ -189,4 +189,3 @@ sprints/
 
 # Ignore .tanstack directory
 .tanstack/
-.env
