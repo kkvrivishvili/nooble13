@@ -103,6 +103,7 @@ class RAGHandler(BaseHandler):
                     similarity_threshold=rag_config.similarity_threshold,
                     tenant_id=tenant_id,
                     agent_id=str(agent_id),  # NUEVO: agent_id obligatorio para filtrado
+                    fact_density_boost=getattr(rag_config, 'fact_density_boost', 0.0),
                     filters={"document_ids": rag_config.document_ids} if rag_config.document_ids else None
                 )
             except Exception as e:

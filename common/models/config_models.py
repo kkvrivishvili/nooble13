@@ -204,6 +204,14 @@ class RAGConfig(BaseModel):
         description="Habilitar reranking de resultados"
     )
     
+    # Nuevo: Peso del boost por fact_density en búsquedas
+    fact_density_boost: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Peso del boost por fact_density en búsquedas (0-1)"
+    )
+    
     # Configuración específica del SDK de OpenAI
     timeout: Optional[float] = Field(
         default=None,

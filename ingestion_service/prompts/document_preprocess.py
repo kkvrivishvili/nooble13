@@ -1,8 +1,13 @@
 """
-Prompts para preprocesamiento de documentos.
+Prompts para preprocesamiento agnóstico de documentos.
 
-Contiene el system prompt principal y utilidades para construir
-los inputs del LLM.
+Implementa las 4 técnicas avanzadas:
+1. Contextual Injected Chunking - contextual_prefix
+2. Search Anchors - queries sintéticas para mejorar retrieval
+3. Fact Density - métrica objetiva de calidad
+4. Entity Normalization - entidades estructuradas
+
+Estos prompts están diseñados para ser AGNÓSTICOS al tipo de documento.
 """
 
 from typing import Optional
@@ -10,242 +15,162 @@ from dataclasses import dataclass
 
 
 # =============================================================================
-# SYSTEM PROMPT PRINCIPAL
+# PROMPT PARA CONTEXTO DE DOCUMENTO (se ejecuta UNA VEZ por documento)
 # =============================================================================
 
-DOCUMENT_PREPROCESS_SYSTEM_PROMPT = """# DOCUMENT PREPROCESSING AGENT
+DOCUMENT_CONTEXT_PROMPT = """Analiza este documento y genera un resumen estructurado para contextualizar fragmentos posteriores.
 
-You are a specialized document preprocessing agent. Your task is to transform raw extracted text into well-structured, semantically rich sections optimized for vector search and retrieval.
+DOCUMENTO:
+{document_text}
 
-## CORE PRINCIPLES
+Responde SOLO con JSON válido (sin markdown, sin explicaciones):
+{{
+    "summary": "Resumen de 2-3 párrafos que capture: qué es el documento, su propósito, y los temas principales que cubre. Este resumen se usará para dar contexto a fragmentos individuales.",
+    
+    "main_topics": ["tema1", "tema2", "tema3", "tema4", "tema5"],
+    
+    "document_type": "contract|invoice|manual|recipe|article|report|legal|medical|technical|academic|narrative|other",
+    
+    "key_entities": ["entidad importante 1", "entidad importante 2", "entidad importante 3"],
+    
+    "language": "es|en"
+}}
 
-1. **PRESERVE ALL CONTENT**: Never summarize, omit, or condense information. Every piece of original content must appear in your output.
-2. **SEMANTIC SECTIONING**: Divide content into logical, self-contained sections that can be understood independently.
-3. **ENRICH WITH METADATA**: Add contextual breadcrumbs, tags, and keywords to each section.
-4. **MAINTAIN FIDELITY**: Fix formatting issues but preserve the original meaning exactly.
-
----
-
-## OUTPUT FORMAT
-
-For each logical section, output the following structure:
-
-```
-<<<SECTION>>>
-[section_id: {sequential_id}]
-[context: {hierarchical_breadcrumb}]
-[content_type: {prose|table|code|list|mixed}]
-[tags: {comma_separated_semantic_tags}]
-[keywords: {comma_separated_specific_entities}]
-[language: {es|en}]
-{if content_type is table or code}[content_description: {one_line_description}]{/if}
----
-{formatted_content}
-<<<END_SECTION>>>
-```
-
----
-
-## FIELD SPECIFICATIONS
-
-### section_id
-- Format: `sec_001`, `sec_002`, etc.
-- Sequential within the document block
-- If this block continues from a previous one, start from the provided `last_section_id + 1`
-
-### context (breadcrumb)
-- Hierarchical path showing where this content belongs
-- Format: `{Document Title} → {Chapter/Section} → {Subsection} → {Current Topic}`
-- Maximum 4 levels deep
-- Use the document name provided in the input if no clear structure exists
-- Example: `Manual TP-Link AX50 → Configuración → Red WiFi → Cambiar SSID`
-
-### content_type
-- `prose`: Regular paragraphs of text
-- `table`: Tabular data (preserve markdown table format)
-- `code`: Code blocks or command-line instructions
-- `list`: Enumerated or bulleted lists
-- `mixed`: Combination of the above
-
-### tags
-- 3-8 semantic tags describing the section's topic
-- Use lowercase, hyphenate multi-word tags
-- Focus on WHAT the content is about conceptually
-- Examples: `instalación`, `requisitos-sistema`, `configuración-red`, `receta-pescado`
-
-### keywords
-- 3-10 specific entities, proper nouns, product names, codes, values
-- These are the exact terms users might search for
-- Include: product names, version numbers, measurements, names, technical terms
-- Examples: `TP-Link-AX50`, `Windows-10`, `8GB-RAM`, `puerto-443`, `papillote`
-
-### language
-- Detect the language of the content: `es` for Spanish, `en` for English
-
-### content_description (conditional)
-- ONLY include if content_type is `table` or `code`
-- One sentence describing what the table/code contains
-- This helps semantic search find structured content
-
-### formatted_content
-- The actual content, cleaned and formatted
-- Fix spacing issues (e.g., `R E C E T A S` → `RECETAS`)
-- Fix broken words from PDF extraction
-- Convert poorly formatted tables to proper markdown tables
-- Preserve code blocks with proper syntax highlighting hints
-- Remove artifacts like `-----`, stray characters, page numbers
-- Remove repeated headers/footers
-
----
-
-## SECTIONING RULES
-
-### Section Size
-- **MINIMUM**: ~200 words / ~256 tokens
-- **TARGET**: ~400-600 words / ~512-768 tokens  
-- **MAXIMUM**: ~1200 words / ~1536 tokens
-
-### When to Create a New Section
-✅ New header/title appears
-✅ Topic changes significantly
-✅ A complete unit ends (recipe, procedure, clause)
-✅ Content type changes (prose → table)
-
-### When to Keep Content Together
-✅ A recipe with its ingredients and steps
-✅ A complete procedure or tutorial
-✅ A table with its caption/explanation
-✅ A code block with its description
-✅ A numbered list that forms a complete unit
-
-### Handling Small Content
-- If a section would be under 200 words, merge it with the next logical section
-- Exception: If it's the last section of a chapter/document, keep it separate
-
----
-
-## SPECIAL HANDLING
-
-### Tables
-```markdown
-[content_type: table]
-[content_description: Tabla de requisitos mínimos del sistema operativo]
----
-| Componente | Mínimo | Recomendado |
-|------------|--------|-------------|
-| RAM | 8 GB | 16 GB |
-| Almacenamiento | 256 GB | 512 GB |
-```
-
-### Code/Commands
-```markdown
-[content_type: code]
-[content_description: Comando para reiniciar el servicio de red en Linux]
----
-Para reiniciar el servicio de red, ejecute:
-
-```bash
-sudo systemctl restart NetworkManager
-```
-```
-
-### Lists (convert to prose when appropriate)
-If a list is just formatting for what should be a paragraph, convert it:
-
-**Input (poor formatting):**
-```
-• Sistema operativo Windows 10
-• Memoria RAM 8GB
-• Disco duro 256GB
-```
-
-**Output (better for search):**
-```
-Los requisitos del sistema incluyen: sistema operativo Windows 10 o superior, memoria RAM de 8GB como mínimo, y espacio en disco duro de al menos 256GB.
-```
-
-### Orphaned Content
-If content lacks clear context (appears mid-explanation), create a reasonable breadcrumb based on surrounding content and note it:
-
-```
-[context: {Document Name} → {Inferred Section} → Continuación]
-```
-
----
-
-## NOISE REMOVAL
-
-Remove the following artifacts:
-- Page numbers and page breaks (`----- Page 5 -----`)
-- Repeated headers/footers that appear on every page
-- Empty table columns (`|Col3|Col4|Col5|` with no data)
-- Decorative separators (`-----`, `*****`, `=====`)
-- Stray characters from PDF extraction artifacts
-- Excessive whitespace
-
-DO NOT remove:
-- Any substantive content
-- Table data (even if formatting is imperfect)
-- Bullet points that contain real information
-- Section numbers that are part of the document structure
-
----
-
-## CONTINUATION HANDLING
-
-When processing a continuation block (not the first block of a document):
-
-1. You will receive `previous_context` with the last section's breadcrumb
-2. You will receive `last_section_id` to continue numbering
-3. Check if the block starts mid-sentence or mid-section
-4. If continuing a section, use the same breadcrumb context
-5. If it's clearly a new section, start fresh
-
----
-
-## LANGUAGE HANDLING
-
-- Detect language from content (primarily Spanish, sometimes English)
-- Tags and keywords should be in the SAME language as the content
-- Field names (section_id, context, etc.) always in English
-- If content is mixed language, use the dominant language for tags
-
----
-
-## QUALITY CHECKLIST
-
-Before outputting, verify:
-☐ All original content is preserved (nothing summarized or omitted)
-☐ Each section has all required metadata fields
-☐ Breadcrumbs make hierarchical sense
-☐ Tags are semantic (topics), keywords are specific (entities)
-☐ Tables are properly formatted markdown
-☐ Code blocks have language hints
-☐ No extraction artifacts remain (-----, page numbers, etc.)
-☐ Section sizes are within bounds (256-1536 tokens)
-☐ Sections are self-contained (understandable without other sections)
+REGLAS:
+- summary: Debe ser suficiente para entender cualquier fragmento del documento sin leer el resto
+- main_topics: 3-7 temas principales, en orden de importancia
+- document_type: Elige el más apropiado de la lista
+- key_entities: Nombres propios, organizaciones, productos mencionados frecuentemente
+- language: Idioma predominante del contenido
 """
 
 
 # =============================================================================
-# INPUT TEMPLATE
+# PROMPT MAESTRO PARA ENRIQUECIMIENTO DE CHUNKS (se ejecuta por cada chunk)
 # =============================================================================
 
-DOCUMENT_INPUT_TEMPLATE = """## DOCUMENT METADATA
-- document_name: {document_name}
-- document_type: {document_type}
-- total_pages: {total_pages}
-- block_number: {block_number} of {total_blocks}
-- is_continuation: {is_continuation}
-{continuation_context}
+CHUNK_ENRICHMENT_PROMPT = """Actúa como un Analista de Datos Estructurales especializado en preparar contenido para búsqueda semántica.
 
-## CONTENT TO PROCESS
+CONTEXTO DEL DOCUMENTO:
+{document_summary}
 
-{content}
+FRAGMENTO A PROCESAR:
+{chunk_content}
+
+Tu tarea es enriquecer este fragmento para optimizar su recuperación en búsquedas. 
+Responde SOLO con JSON válido (sin markdown, sin explicaciones):
+
+{{
+    "contextual_prefix": "1-2 frases que sitúen este fragmento en el contexto del documento completo. Debe permitir entender el fragmento SIN leer el resto del documento. Ejemplo: 'En el contexto del contrato de servicios entre Empresa A y Empresa B para mantenimiento de equipos informáticos durante 2024...'",
+    
+    "search_anchors": [
+        "cómo buscaría esto un experto",
+        "cómo buscaría esto alguien sin conocimiento técnico",
+        "sinónimo técnico del tema principal",
+        "pregunta específica que este fragmento responde",
+        "variación coloquial de los términos",
+        "otra forma de preguntar por esta información",
+        "términos relacionados que un usuario podría usar"
+    ],
+    
+    "atomic_facts": [
+        "Categoría: dato concreto y verificable",
+        "Fecha: YYYY-MM-DD si aplica",
+        "Monto: cantidad numérica si aplica",
+        "Nombre: entidad específica mencionada"
+    ],
+    
+    "fact_density": 0.0,
+    
+    "normalized_entities": {{
+        "person": "Nombre Completo normalizado",
+        "organization": "Nombre de Organización",
+        "date": "YYYY-MM-DD",
+        "amount": "valor numérico sin símbolos",
+        "location": "Lugar normalizado",
+        "product": "Nombre del producto/servicio"
+    }},
+    
+    "document_nature": "transactional|narrative|technical|legal|recipe|manual|medical|academic|other"
+}}
+
+=== REGLAS DETALLADAS ===
+
+CONTEXTUAL_PREFIX (CRÍTICO):
+- Debe hacer el fragmento AUTOCONTENIDO
+- Incluye: qué documento es, de qué trata, dónde estamos en la estructura
+- NO copies el contenido, solo contextualiza
+- Ejemplo bueno: "En la sección de ingredientes de la receta de paella valenciana del recetario 'Cocina Mediterránea'..."
+- Ejemplo malo: "Este texto habla de ingredientes" (muy vago)
+
+SEARCH_ANCHORS (CRÍTICO):
+- PIENSA como buscaría un USUARIO REAL esta información
+- Incluye al menos:
+  * 1-2 búsquedas de EXPERTO (términos técnicos precisos)
+  * 1-2 búsquedas de NOVATO (términos simples, coloquiales)
+  * 1-2 PREGUNTAS que este fragmento responde
+  * 1-2 SINÓNIMOS o variaciones
+- Mínimo 5, máximo 10
+- Deben ser DIFERENTES entre sí, no variaciones mínimas
+- Ejemplo para receta de paella: ["paella valenciana ingredientes", "qué lleva la paella", "arroz con mariscos receta", "cómo hacer paella", "ingredientes paella tradicional", "arroz español ingredientes", "qué necesito para hacer paella"]
+
+ATOMIC_FACTS:
+- Solo hechos VERIFICABLES y CONCRETOS
+- Formato estricto: "Categoría: valor"
+- Tipos válidos: Fecha, Monto, Cantidad, Nombre, Código, Medida, Duración, Porcentaje
+- Si no hay hechos concretos, devuelve lista vacía []
+- Ejemplos buenos: "Fecha firma: 2024-03-15", "Monto total: 15000", "Cantidad personas: 4"
+- Ejemplos malos: "El documento es importante", "Información útil" (no son hechos verificables)
+
+FACT_DENSITY (0.0 a 1.0):
+- 0.9-1.0: MUCHOS datos concretos (tabla de especificaciones, lista de ingredientes con medidas, datos financieros)
+- 0.7-0.8: Información útil con VARIOS datos específicos (párrafo con fechas, nombres, cifras)
+- 0.5-0.6: Mezcla equilibrada de texto explicativo y datos
+- 0.3-0.4: Principalmente EXPLICATIVO, pocos datos concretos
+- 0.1-0.2: Texto MUY general, introducciones, conclusiones genéricas
+- 0.0: Fragmento roto, basura, sin información útil
+
+NORMALIZED_ENTITIES:
+- Solo incluye entidades que EXISTAN en el texto
+- Normaliza fechas a YYYY-MM-DD (ej: "15 de marzo" → "2024-03-15")
+- Normaliza montos a números sin símbolos (ej: "$15.000 USD" → "15000")
+- Normaliza nombres propios con mayúsculas correctas
+- Si no hay entidades de un tipo, OMITE esa clave (no pongas null o vacío)
+
+DOCUMENT_NATURE:
+- transactional: Facturas, contratos, órdenes de compra, recibos
+- narrative: Artículos, noticias, historias, blogs
+- technical: Documentación técnica, especificaciones, APIs
+- legal: Leyes, términos y condiciones, acuerdos legales
+- recipe: Recetas de cocina, procedimientos paso a paso
+- manual: Guías de usuario, instructivos, tutoriales
+- medical: Informes médicos, diagnósticos, tratamientos
+- academic: Papers, investigaciones, tesis
+- other: Si no encaja en ninguna categoría
 """
 
-CONTINUATION_CONTEXT_TEMPLATE = """- previous_context: {previous_context}
-- last_section_id: {last_section_id}"""
+
+# =============================================================================
+# PROMPT SIMPLIFICADO PARA CHUNKS PEQUEÑOS
+# =============================================================================
+
+CHUNK_ENRICHMENT_SIMPLE_PROMPT = """Enriquece este fragmento para búsqueda semántica.
+
+DOCUMENTO: {document_name}
+CONTEXTO: {document_summary_short}
+
+FRAGMENTO:
+{chunk_content}
+
+Responde SOLO JSON:
+{{
+    "contextual_prefix": "1 frase que contextualice este fragmento",
+    "search_anchors": ["5 formas de buscar esto"],
+    "atomic_facts": ["hechos concretos si existen"],
+    "fact_density": 0.5,
+    "document_nature": "tipo"
+}}
+"""
 
 
 # =============================================================================
@@ -253,57 +178,86 @@ CONTINUATION_CONTEXT_TEMPLATE = """- previous_context: {previous_context}
 # =============================================================================
 
 @dataclass
-class BlockMetadata:
-    """Metadata para un bloque de documento a procesar."""
+class ChunkProcessingContext:
+    """Contexto para procesar un chunk individual."""
+    document_id: str
     document_name: str
+    document_summary: str
     document_type: str
-    total_pages: int
-    block_number: int
-    total_blocks: int
-    is_continuation: bool = False
-    previous_context: Optional[str] = None
-    last_section_id: Optional[str] = None
+    chunk_index: int
+    total_chunks: int
+    is_first_chunk: bool
+    is_last_chunk: bool
 
 
 # =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
 
-def build_preprocessing_input(
-    content: str,
-    metadata: BlockMetadata
-) -> str:
+def build_document_context_input(document_text: str, max_chars: int = 15000) -> str:
     """
-    Construye el input completo para el LLM.
+    Construye el input para generar contexto de documento.
     
     Args:
-        content: Contenido del bloque a procesar
-        metadata: Metadata del bloque
+        document_text: Texto completo del documento
+        max_chars: Máximo de caracteres a enviar (para documentos largos)
         
     Returns:
-        String formateado listo para enviar al LLM
+        Prompt formateado listo para enviar al LLM
     """
-    # Construir contexto de continuación si aplica
-    continuation_context = ""
-    if metadata.is_continuation and metadata.previous_context:
-        continuation_context = CONTINUATION_CONTEXT_TEMPLATE.format(
-            previous_context=metadata.previous_context,
-            last_section_id=metadata.last_section_id or "sec_000"
+    # Truncar si es muy largo
+    if len(document_text) > max_chars:
+        # Tomar inicio y fin para mejor comprensión
+        half = max_chars // 2
+        text_for_summary = (
+            document_text[:half] + 
+            "\n\n[... contenido intermedio omitido ...]\n\n" + 
+            document_text[-half:]
+        )
+    else:
+        text_for_summary = document_text
+    
+    return DOCUMENT_CONTEXT_PROMPT.format(document_text=text_for_summary)
+
+
+def build_chunk_enrichment_input(
+    chunk_content: str,
+    document_summary: str,
+    use_simple: bool = False,
+    document_name: str = ""
+) -> str:
+    """
+    Construye el input para enriquecer un chunk.
+    
+    Args:
+        chunk_content: Contenido del chunk a procesar
+        document_summary: Resumen del documento (de DocumentContext)
+        use_simple: Usar prompt simplificado para chunks pequeños
+        document_name: Nombre del documento (para prompt simple)
+        
+    Returns:
+        Prompt formateado listo para enviar al LLM
+    """
+    if use_simple and len(chunk_content) < 500:
+        # Usar prompt simplificado para chunks pequeños
+        summary_short = document_summary[:300] + "..." if len(document_summary) > 300 else document_summary
+        return CHUNK_ENRICHMENT_SIMPLE_PROMPT.format(
+            document_name=document_name,
+            document_summary_short=summary_short,
+            chunk_content=chunk_content
         )
     
-    # Construir input completo
-    return DOCUMENT_INPUT_TEMPLATE.format(
-        document_name=metadata.document_name,
-        document_type=metadata.document_type,
-        total_pages=metadata.total_pages or "unknown",
-        block_number=metadata.block_number,
-        total_blocks=metadata.total_blocks,
-        is_continuation=str(metadata.is_continuation).lower(),
-        continuation_context=continuation_context,
-        content=content
+    return CHUNK_ENRICHMENT_PROMPT.format(
+        document_summary=document_summary,
+        chunk_content=chunk_content
     )
 
 
-def get_system_prompt() -> str:
-    """Retorna el system prompt principal."""
-    return DOCUMENT_PREPROCESS_SYSTEM_PROMPT
+def get_document_context_prompt() -> str:
+    """Retorna el prompt para contexto de documento."""
+    return DOCUMENT_CONTEXT_PROMPT
+
+
+def get_chunk_enrichment_prompt() -> str:
+    """Retorna el prompt maestro para enriquecimiento."""
+    return CHUNK_ENRICHMENT_PROMPT

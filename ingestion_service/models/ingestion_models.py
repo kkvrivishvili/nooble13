@@ -1,5 +1,6 @@
 """
 Modelos para Ingestion Service.
+Actualizados para soportar técnicas agnósticas de preprocesamiento.
 """
 import uuid
 from datetime import datetime
@@ -13,6 +14,7 @@ class IngestionStatus(str, Enum):
     """Estados de ingestion."""
     PENDING = "pending"
     PROCESSING = "processing"
+    PREPROCESSING = "preprocessing"  # Nuevo: fase de enriquecimiento LLM
     CHUNKING = "chunking"
     EMBEDDING = "embedding"
     STORING = "storing"
@@ -37,6 +39,18 @@ class RAGIngestionConfig(BaseModel):
     encoding_format: str = Field(default="float")
     chunk_size: int = Field(default=512)
     chunk_overlap: int = Field(default=50)
+    
+    # Nuevas opciones para preprocesamiento agnóstico
+    enable_preprocessing: bool = Field(
+        default=True,
+        description="Habilitar preprocesamiento LLM para enriquecimiento"
+    )
+    fact_density_boost: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Peso del boost por fact_density en búsquedas (0-1)"
+    )
     
     class Config:
         use_enum_values = False  # Mantener enum objects
@@ -97,19 +111,68 @@ class IngestionProgress(BaseModel):
 
 
 class ChunkModel(BaseModel):
-    """Modelo para chunks de documento."""
+    """
+    Modelo para chunks de documento.
+    Actualizado para técnicas agnósticas de preprocesamiento.
+    """
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     document_id: str  # UUID como string
     tenant_id: str    # UUID como string
-    content: str
+    
+    # Contenido - CRÍTICO: usar content para embeddings (ya incluye contextual_prefix)
+    content: str = Field(..., description="Contenido contextualizado para embeddings")
+    content_raw: Optional[str] = Field(None, description="Contenido original sin contextualizar")
+    
     chunk_index: int
     
     # IDs para jerarquía
     collection_id: str
     agent_ids: List[str] = Field(default_factory=list)
     
-    # Embeddings y enriquecimiento
+    # Embeddings
     embedding: Optional[List[float]] = None
+    
+    # ==========================================================================
+    # CAMPOS PARA TÉCNICAS AGNÓSTICAS
+    # ==========================================================================
+    
+    # Search Anchors - Para BM25 + Full-Text Index
+    search_anchors: List[str] = Field(
+        default_factory=list,
+        description="Queries sintéticas: cómo buscaría un usuario esta información"
+    )
+    
+    # Atomic Facts - Para búsqueda exacta de datos
+    atomic_facts: List[str] = Field(
+        default_factory=list,
+        description="Hechos verificables extraídos (Categoría: valor)"
+    )
+    
+    # Fact Density - Para Score-Boosting
+    fact_density: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Densidad de hechos concretos (0-1). Usado para reranking"
+    )
+    
+    # Document Nature - Para filtrado
+    document_nature: str = Field(
+        default="other",
+        description="Tipo de documento (transactional, narrative, technical, etc.)"
+    )
+    
+    # Normalized Entities - Para filtrado estructurado
+    normalized_entities: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Entidades normalizadas (person, organization, date, amount, location)"
+    )
+    
+    # ==========================================================================
+    # CAMPOS LEGACY (para compatibilidad)
+    # ==========================================================================
+    
+    # Keywords y tags legacy - ahora menos importantes que search_anchors
     keywords: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     
@@ -121,3 +184,18 @@ class ChunkModel(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }
+    
+    def get_bm25_text(self) -> str:
+        """
+        Retorna texto optimizado para BM25/sparse embeddings.
+        Combina contenido + search_anchors + atomic_facts.
+        """
+        parts = [self.content]
+        
+        if self.search_anchors:
+            parts.append(" ".join(self.search_anchors))
+        
+        if self.atomic_facts:
+            parts.append(" ".join(self.atomic_facts))
+        
+        return " ".join(parts)

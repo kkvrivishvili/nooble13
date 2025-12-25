@@ -1,8 +1,12 @@
 """
 Handler optimizado para procesamiento avanzado de documentos.
-Incluye preprocesamiento con LLM para enriquecimiento semántico.
+Implementa técnicas agnósticas de preprocesamiento:
+- Contextual Injected Chunking
+- Search Anchors
+- Fact Density
+- Entity Normalization
 
-Mantiene 100% de compatibilidad con el sistema existente de Nooble8.
+El embedding se genera del content_contextualized (con prefijo de contexto).
 """
 import logging
 import hashlib
@@ -28,12 +32,12 @@ from llama_index.core.node_parser import SentenceSplitter
 
 from common.handlers.base_handler import BaseHandler
 from ..models import DocumentIngestionRequest, ChunkModel, DocumentType
-from ..models.preprocessing_models import EnrichedSection, PreprocessingResult
+from ..models.preprocessing_models import EnrichedChunk, PreprocessingResult, DocumentContext
 from ..config.settings import IngestionSettings
 
-# Import condicional del PreprocessHandler
+# Import del nuevo handler agnóstico
 try:
-    from .preprocess_handler import PreprocessHandler
+    from .preprocess_handler import AgnosticPreprocessHandler
     PREPROCESS_AVAILABLE = True
 except ImportError:
     PREPROCESS_AVAILABLE = False
@@ -48,10 +52,11 @@ class DocumentHandler(BaseHandler):
     """
     Handler optimizado para procesamiento robusto de documentos.
     
-    Incluye preprocesamiento con LLM para:
-    - Formateo a Markdown estructurado
-    - Extracción de tags y keywords
-    - Chunking semántico basado en secciones
+    Implementa técnicas agnósticas de preprocesamiento:
+    - content_contextualized: Para embeddings (mejora calidad vectorial)
+    - search_anchors: Para BM25 + Full-Text (mejora recall)
+    - fact_density: Para Score-Boosting (mejora ranking)
+    - normalized_entities: Para filtrado estructurado
     
     Compatible con el sistema existente de Nooble8 Ingestion Service.
     """
@@ -63,19 +68,20 @@ class DocumentHandler(BaseHandler):
         # Cache de parsers por configuración (para fallback)
         self._parsers_cache = {}
         
-        # Inicializar PreprocessHandler si está disponible y habilitado
-        self.preprocess_handler: Optional[PreprocessHandler] = None
+        # Inicializar PreprocessHandler agnóstico
+        self.preprocess_handler: Optional[AgnosticPreprocessHandler] = None
         self.preprocessing_enabled = getattr(app_settings, 'enable_document_preprocessing', False)
         
         if PREPROCESS_AVAILABLE and self.preprocessing_enabled:
             try:
-                self.preprocess_handler = PreprocessHandler(app_settings)
+                self.preprocess_handler = AgnosticPreprocessHandler(app_settings)
                 self._logger.info(
-                    "DocumentHandler initialized with LLM preprocessing enabled"
+                    "DocumentHandler initialized with AGNOSTIC preprocessing enabled",
+                    extra={"model": getattr(app_settings, 'preprocessing_model', 'unknown')}
                 )
             except Exception as e:
                 self._logger.warning(
-                    f"Failed to initialize PreprocessHandler: {e}. "
+                    f"Failed to initialize AgnosticPreprocessHandler: {e}. "
                     "Falling back to standard processing."
                 )
                 self.preprocessing_enabled = False
@@ -106,15 +112,17 @@ class DocumentHandler(BaseHandler):
         agent_ids: List[str]
     ) -> List[ChunkModel]:
         """
-        Procesa documento y retorna chunks manteniendo compatibilidad.
+        Procesa documento y retorna chunks con enriquecimiento agnóstico.
         
-        Si el preprocessing está habilitado:
-        1. Extrae texto crudo
-        2. Envía al LLM para formateo y enriquecimiento
-        3. Crea chunks desde secciones enriquecidas
+        Flujo con preprocessing habilitado:
+        1. Extrae texto crudo del documento
+        2. Divide en chunks con SentenceSplitter
+        3. Genera contexto del documento (UNA VEZ)
+        4. Enriquece cada chunk con el LLM
+        5. Retorna ChunkModels con campos agnósticos
         
         Si está deshabilitado o falla:
-        - Usa el flujo tradicional de chunking
+        - Usa el flujo tradicional de chunking sin enriquecimiento
         
         Args:
             request: Request de ingestion con el documento
@@ -124,7 +132,7 @@ class DocumentHandler(BaseHandler):
             agent_ids: Lista de agent IDs con acceso
             
         Returns:
-            Lista de ChunkModel procesados
+            Lista de ChunkModel procesados con campos agnósticos
         """
         try:
             # Validar tamaño máximo del documento antes de procesar
@@ -140,27 +148,52 @@ class DocumentHandler(BaseHandler):
                 else str(request.document_type)
             )
             
+            # Primero hacer chunking tradicional
+            raw_chunks = await self._create_raw_chunks(
+                document=document,
+                extraction_info=extraction_info,
+                request=request
+            )
+            
+            self._logger.info(
+                f"Created {len(raw_chunks)} raw chunks, starting enrichment...",
+                extra={"document_id": document_id, "preprocessing_enabled": self.preprocessing_enabled}
+            )
+            
             # ================================================================
-            # NUEVO: Intentar preprocesamiento con LLM
+            # NUEVO: Preprocesamiento agnóstico
             # ================================================================
             chunks = []
             preprocessing_used = False
             
             if self.preprocessing_enabled and self.preprocess_handler:
                 try:
-                    self._logger.debug(f"Initiating preprocessing flow for: {request.document_name}")
-                    
-                    preprocessing_result = await self.preprocess_handler.preprocess_document(
-                        content=document.text,
-                        document_name=request.document_name,
-                        document_type=doc_type_value,
-                        page_count=extraction_info.get("page_count")
+                    self._logger.info(
+                        f"--- [AGNOSTIC] Starting preprocessing for: {request.document_name} ---"
                     )
                     
-                    if preprocessing_result.was_preprocessed and preprocessing_result.sections:
-                        # Crear chunks desde secciones enriquecidas
-                        chunks = self._create_chunks_from_sections(
-                            sections=preprocessing_result.sections,
+                    # Preparar chunks para el preprocessor
+                    chunks_for_preprocessing = [
+                        {
+                            "content": chunk["content"],
+                            "chunk_id": chunk["chunk_id"],
+                            "chunk_index": chunk["chunk_index"]
+                        }
+                        for chunk in raw_chunks
+                    ]
+                    
+                    # Preprocesar documento completo
+                    preprocessing_result = await self.preprocess_handler.preprocess_document(
+                        chunks=chunks_for_preprocessing,
+                        document_id=document_id,
+                        document_name=request.document_name,
+                        document_text=document.text
+                    )
+                    
+                    if preprocessing_result.was_preprocessed and preprocessing_result.chunks:
+                        # Crear ChunkModels desde chunks enriquecidos
+                        chunks = self._create_chunks_from_enriched(
+                            enriched_chunks=preprocessing_result.chunks,
                             document_id=document_id,
                             tenant_id=tenant_id,
                             collection_id=collection_id,
@@ -171,134 +204,70 @@ class DocumentHandler(BaseHandler):
                         )
                         preprocessing_used = True
                         
-                        self._logger.info(f"[DOC_HANDLER] Created {len(chunks)} chunks from LLM sections")
-                        self._logger.debug(
-                            f"Preprocessing result for {request.document_name}",
+                        self._logger.info(
+                            f"Document preprocessed with AGNOSTIC techniques",
                             extra={
                                 "document_id": document_id,
+                                "document_name": request.document_name,
+                                "total_chunks": len(chunks),
+                                "avg_fact_density": round(preprocessing_result.avg_fact_density, 2),
+                                "total_search_anchors": preprocessing_result.total_search_anchors,
+                                "total_atomic_facts": preprocessing_result.total_atomic_facts,
                                 "llm_tokens": preprocessing_result.llm_usage.get("total_tokens", 0),
-                                "preprocessing_errors": len(preprocessing_result.processing_errors)
+                                "errors": len(preprocessing_result.processing_errors)
                             }
                         )
                         
                 except Exception as e:
                     self._logger.error(
-                        f"LLM preprocessing failed, falling back to standard chunking: {e}",
-                        extra={"document_name": request.document_name}
+                        f"Agnostic preprocessing failed, falling back to standard chunking: {e}",
+                        extra={"document_name": request.document_name},
+                        exc_info=True
                     )
             
             # ================================================================
-            # FALLBACK: Chunking tradicional si preprocessing no se usó
+            # FALLBACK: Chunking tradicional sin enriquecimiento
             # ================================================================
             if not preprocessing_used:
-                chunks = await self._create_chunks_traditional(
-                    document=document,
-                    extraction_info=extraction_info,
-                    request=request,
+                chunks = self._create_chunks_traditional(
+                    raw_chunks=raw_chunks,
                     document_id=document_id,
                     tenant_id=tenant_id,
                     collection_id=collection_id,
-                    agent_ids=agent_ids
+                    agent_ids=agent_ids,
+                    request=request,
+                    extraction_info=extraction_info
                 )
             
             self._logger.info(
-                f"Document processed successfully: {len(chunks)} chunks",
+                f"Document processed successfully",
                 extra={
                     "document_id": document_id,
                     "document_name": request.document_name,
                     "document_type": doc_type_value,
-                    "extraction_method": extraction_info.get("method"),
-                    "preprocessing_used": preprocessing_used,
-                    "chunk_size": request.rag_config.chunk_size,
-                    "chunk_overlap": request.rag_config.chunk_overlap,
                     "total_chunks": len(chunks),
-                    "extraction_errors": len(extraction_info.get("errors", []))
+                    "preprocessing_used": preprocessing_used,
+                    "extraction_method": extraction_info.get("method")
                 }
             )
+            
             return chunks
             
         except Exception as e:
             self._logger.error(f"Error processing document: {e}", exc_info=True)
             raise
     
-    def _create_chunks_from_sections(
-        self,
-        sections: List[EnrichedSection],
-        document_id: str,
-        tenant_id: str,
-        collection_id: str,
-        agent_ids: List[str],
-        request: DocumentIngestionRequest,
-        extraction_info: Dict[str, Any],
-        preprocessing_result: PreprocessingResult
-    ) -> List[ChunkModel]:
-        """
-        Crea ChunkModels desde secciones enriquecidas por el LLM.
-        """
-        doc_type_value = (
-            request.document_type.value 
-            if hasattr(request.document_type, 'value')
-            else str(request.document_type)
-        )
-        
-        # LOG: Inicio de creación de chunks desde secciones enriquecidas
-        self._logger.info(
-            f"--- [INGESTION] Creating chunks from {len(sections)} LLM sections ---",
-            extra={
-                "document_id": document_id,
-                "tenant_id": tenant_id
-            }
-        )
-
-        chunks = []
-        for idx, section in enumerate(sections):
-            # El contenido ya está limpio y formateado por el LLM
-            chunk_content = section.content.strip()
-            
-            # Skip secciones vacías
-            if not chunk_content:
-                continue
-            
-            chunk = ChunkModel(
-                chunk_id=str(uuid.uuid4()),
-                document_id=document_id,
-                tenant_id=tenant_id,
-                content=chunk_content,
-                chunk_index=idx,
-                collection_id=collection_id,
-                agent_ids=agent_ids if agent_ids else [],
-                keywords=section.keywords,
-                tags=section.tags,
-                metadata={
-                    "document_name": request.document_name,
-                    "document_type": doc_type_value,
-                    "section_id": section.section_id,
-                    "context_breadcrumb": section.context_breadcrumb,
-                    "content_type": section.content_type,
-                    "was_preprocessed": True,
-                    **request.metadata
-                }
-            )
-            chunks.append(chunk)
-
-        self._logger.info(f"[INGESTION] Generated {len(chunks)} enriched chunks")
-        return chunks
-    
-    async def _create_chunks_traditional(
+    async def _create_raw_chunks(
         self,
         document: Document,
         extraction_info: Dict[str, Any],
-        request: DocumentIngestionRequest,
-        document_id: str,
-        tenant_id: str,
-        collection_id: str,
-        agent_ids: List[str]
-    ) -> List[ChunkModel]:
+        request: DocumentIngestionRequest
+    ) -> List[Dict[str, Any]]:
         """
-        Crea chunks usando el método tradicional (SentenceSplitter).
+        Divide el documento en chunks crudos usando SentenceSplitter.
         
-        Usado como fallback cuando el preprocessing LLM no está disponible
-        o falla.
+        Returns:
+            Lista de dicts con {content, chunk_id, chunk_index}
         """
         # Limpieza avanzada de texto (excepto markdown)
         if not extraction_info.get("is_markdown", False):
@@ -318,38 +287,161 @@ class DocumentHandler(BaseHandler):
         # Parsear en chunks
         nodes = parser.get_nodes_from_documents([document])
         
+        raw_chunks = []
+        for idx, node in enumerate(nodes):
+            chunk_content = self._clean_chunk_content(node.get_content())
+            raw_chunks.append({
+                "content": chunk_content,
+                "chunk_id": str(uuid.uuid4()),
+                "chunk_index": idx,
+                "start_char_idx": getattr(node, 'start_char_idx', None),
+                "end_char_idx": getattr(node, 'end_char_idx', None)
+            })
+        
+        return raw_chunks
+    
+    def _create_chunks_from_enriched(
+        self,
+        enriched_chunks: List[EnrichedChunk],
+        document_id: str,
+        tenant_id: str,
+        collection_id: str,
+        agent_ids: List[str],
+        request: DocumentIngestionRequest,
+        extraction_info: Dict[str, Any],
+        preprocessing_result: PreprocessingResult
+    ) -> List[ChunkModel]:
+        """
+        Crea ChunkModels desde chunks enriquecidos por el LLM.
+        
+        CRÍTICO: El campo 'content' contiene content_contextualized
+        (con prefijo de contexto) para que el embedding sea de mejor calidad.
+        """
         doc_type_value = (
             request.document_type.value 
             if hasattr(request.document_type, 'value')
             else str(request.document_type)
         )
         
-        # Convertir a ChunkModel
+        self._logger.info(
+            f"--- [AGNOSTIC] Creating {len(enriched_chunks)} ChunkModels from enriched data ---"
+        )
+
         chunks = []
-        for idx, node in enumerate(nodes):
-            chunk_content = self._clean_chunk_content(node.get_content())
-            
+        for enriched in enriched_chunks:
+            # IMPORTANTE: content = content_contextualized (con prefijo)
+            # Esto es lo que se vectoriza y mejora la calidad del embedding
             chunk = ChunkModel(
-                chunk_id=str(uuid.uuid4()),
+                chunk_id=enriched.chunk_id,
                 document_id=document_id,
                 tenant_id=tenant_id,
-                content=chunk_content,
-                chunk_index=idx,
+                
+                # Contenido contextualizado para embeddings
+                content=enriched.content_contextualized,
+                content_raw=enriched.content_raw,
+                
+                chunk_index=enriched.chunk_index,
                 collection_id=collection_id,
                 agent_ids=agent_ids if agent_ids else [],
-                # Sin enriquecimiento LLM
-                keywords=[],
-                tags=[],
+                
+                # ============================================
+                # CAMPOS AGNÓSTICOS - Lo importante
+                # ============================================
+                search_anchors=enriched.search_anchors,
+                atomic_facts=enriched.atomic_facts,
+                fact_density=enriched.fact_density,
+                document_nature=enriched.document_nature,
+                normalized_entities=enriched.normalized_entities,
+                
+                # Legacy (menos importantes ahora)
+                keywords=[],  # Reemplazados por search_anchors
+                tags=[],      # Reemplazados por document_nature
+                
                 metadata={
                     "document_name": request.document_name,
                     "document_type": doc_type_value,
-                    "start_char_idx": getattr(node, 'start_char_idx', None),
-                    "end_char_idx": getattr(node, 'end_char_idx', None),
                     "extraction_method": extraction_info.get("method", "standard"),
                     "has_tables": extraction_info.get("has_tables", False),
                     "page_count": extraction_info.get("page_count", None),
-                    "chunk_word_count": len(chunk_content.split()),
-                    "extraction_errors": extraction_info.get("errors", []),
+                    "word_count": enriched.word_count,
+                    "language": enriched.language,
+                    "contextual_prefix": enriched.contextual_prefix,
+                    "preprocessing_used": True,
+                    "preprocessing_model": getattr(self.app_settings, 'preprocessing_model', 'unknown'),
+                    **request.metadata
+                }
+            )
+            chunks.append(chunk)
+
+        # Log de ejemplo del primer chunk
+        if chunks:
+            first = chunks[0]
+            self._logger.info(
+                f"[AGNOSTIC] Sample chunk created",
+                extra={
+                    "chunk_id": first.chunk_id,
+                    "fact_density": first.fact_density,
+                    "search_anchors_count": len(first.search_anchors),
+                    "atomic_facts_count": len(first.atomic_facts),
+                    "document_nature": first.document_nature,
+                    "content_length": len(first.content),
+                    "has_contextual_prefix": bool(first.metadata.get("contextual_prefix"))
+                }
+            )
+
+        return chunks
+    
+    def _create_chunks_traditional(
+        self,
+        raw_chunks: List[Dict[str, Any]],
+        document_id: str,
+        tenant_id: str,
+        collection_id: str,
+        agent_ids: List[str],
+        request: DocumentIngestionRequest,
+        extraction_info: Dict[str, Any]
+    ) -> List[ChunkModel]:
+        """
+        Crea chunks usando el método tradicional sin enriquecimiento LLM.
+        Usado como fallback.
+        """
+        doc_type_value = (
+            request.document_type.value 
+            if hasattr(request.document_type, 'value')
+            else str(request.document_type)
+        )
+        
+        chunks = []
+        for raw_chunk in raw_chunks:
+            chunk = ChunkModel(
+                chunk_id=raw_chunk["chunk_id"],
+                document_id=document_id,
+                tenant_id=tenant_id,
+                content=raw_chunk["content"],
+                content_raw=raw_chunk["content"],  # Sin contextualizar
+                chunk_index=raw_chunk["chunk_index"],
+                collection_id=collection_id,
+                agent_ids=agent_ids if agent_ids else [],
+                
+                # Sin enriquecimiento agnóstico
+                search_anchors=[],
+                atomic_facts=[],
+                fact_density=0.5,  # Valor por defecto
+                document_nature="other",
+                normalized_entities={},
+                
+                keywords=[],
+                tags=[],
+                
+                metadata={
+                    "document_name": request.document_name,
+                    "document_type": doc_type_value,
+                    "start_char_idx": raw_chunk.get("start_char_idx"),
+                    "end_char_idx": raw_chunk.get("end_char_idx"),
+                    "extraction_method": extraction_info.get("method", "standard"),
+                    "has_tables": extraction_info.get("has_tables", False),
+                    "page_count": extraction_info.get("page_count", None),
+                    "word_count": len(raw_chunk["content"].split()),
                     "preprocessing_used": False,
                     **request.metadata
                 }
@@ -359,7 +451,7 @@ class DocumentHandler(BaseHandler):
         return chunks
     
     # =========================================================================
-    # MÉTODOS EXISTENTES (sin cambios)
+    # MÉTODOS DE EXTRACCIÓN (sin cambios significativos)
     # =========================================================================
     
     def _validate_document_size(self, request: DocumentIngestionRequest):

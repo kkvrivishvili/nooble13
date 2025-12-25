@@ -42,17 +42,18 @@ class QdrantClient:
     async def search(
         self,
         query_embedding: List[float],
-        query_text: str, # NUEVO: Texto original de la consulta para BM25
+        query_text: str,
         collection_ids: List[str],
         top_k: int,
         similarity_threshold: float,
         tenant_id: UUID,
         agent_id: str,
+        fact_density_boost: float = 0.0,  # NUEVO: Peso del boost
         filters: Optional[Dict[str, Any]] = None
     ) -> List[RAGChunk]:
         """
         Realiza búsqueda vectorial en la colección unificada "documents".
-        Usa Hybrid Search (Dense + Sparse) con Fusion RRF.
+        Usa Hybrid Search (Dense + Sparse) con Fusion RRF y Score-Boosting por fact_density.
         
         Args:
             agent_id: ID del agente - OBLIGATORIO para filtrado
@@ -63,7 +64,7 @@ class QdrantClient:
         """
         # LOG DETALLADO: Parámetros de entrada
         self.logger.info(
-            f"QdrantClient: SEARCH ejecutándose - collection_ids={collection_ids}, tenant_id={tenant_id}, agent_id={agent_id}, top_k={top_k}, threshold={similarity_threshold}"
+            f"QdrantClient: SEARCH ejecutándose - collection_ids={collection_ids}, tenant_id={tenant_id}, agent_id={agent_id}, top_k={top_k}, threshold={similarity_threshold}, boost={fact_density_boost}"
         )
         
         # Validar agent_id obligatorio
@@ -103,7 +104,11 @@ class QdrantClient:
         
         qdrant_filter = Filter(must=must_conditions)
         
-        # BUSQUEDA HÍBRIDA: Dense + Sparse (BM25) con RRF
+        # BUSQUEDA HÍBRIDA: Dense + Sparse (BM25) con RRF y FormulaQuery nativo
+        from qdrant_client.models import (
+            SumExpression, MultExpression, FormulaQuery
+        )
+        
         try:
             # 1. Generar vector sparse de la consulta
             query_sparse = list(self.sparse_embedding_model.query_embed(query_text))[0]
@@ -114,8 +119,8 @@ class QdrantClient:
                 Prefetch(
                     query=query_embedding,
                     using="dense",
-                    filter=qdrant_filter, # Aplicar filtro aquí también
-                    limit=top_k
+                    filter=qdrant_filter,
+                    limit=50 # Buscar más para fusión
                 ),
                 # Búsqueda Léxica (BM25)
                 Prefetch(
@@ -124,18 +129,41 @@ class QdrantClient:
                         values=query_sparse.values.tolist()
                     ),
                     using="bm25",
-                    filter=qdrant_filter, # Aplicar filtro aquí también
-                    limit=top_k
+                    filter=qdrant_filter,
+                    limit=50 # Buscar más para fusión
                 )
             ]
             
-            # 3. Ejecutar Query con Fusión RRF
-            self.logger.info(f"Executing Hybrid Search (RRF) for query: '{query_text[:50]}...'")
+            # 3. Ejecutar Query con Fusión RRF y Score-Boosting
+            self.logger.info(
+                f"Executing Hybrid Search (RRF) with boost={fact_density_boost} for: '{query_text[:50]}...'"
+            )
+            
+            # Qdrant 1.14+ FormulaQuery para Score-Boosting nativo
+            if fact_density_boost > 0:
+                # Fórmula Multiplicativa mejorada: score * (1 + (fact_density * boost))
+                # Esto asegura que el boost sea un multiplicador de calidad sobre la relevancia semántica,
+                # en lugar de aplastarla totalmente (evita score crushing).
+                query = FormulaQuery(
+                    formula=MultExpression(mult=[
+                        "$score",  # Score del RRF (Pequeño, ej. 0.016)
+                        SumExpression(sum=[
+                            1.0, 
+                            MultExpression(mult=[
+                                fact_density_boost,
+                                "fact_density"
+                            ])
+                        ])
+                    ]),
+                    defaults={"fact_density": 0.5}
+                )
+            else:
+                query = FusionQuery(fusion=Fusion.RRF)
+
             results = await self.client.query_points(
                 collection_name=self.collection_name,
                 prefetch=prefetch,
-                query=FusionQuery(fusion=Fusion.RRF),
-                # En RRF filters se aplican en prefetch
+                query=query,
                 limit=top_k
             )
             

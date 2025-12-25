@@ -1,43 +1,113 @@
 """
-Modelos para preprocesamiento de documentos.
+Modelos para preprocesamiento agnóstico de documentos.
 
-Define las estructuras de datos para secciones enriquecidas
-generadas por el LLM.
+Implementa las 4 técnicas avanzadas:
+1. Contextual Injected Chunking
+2. Search Anchors (Queries Sintéticas)
+3. Fact Density (Hechos Atómicos)
+4. Entity Normalization
 """
 
 import re
+import json
+import logging
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
-class ContentType(str, Enum):
-    """Tipos de contenido detectados por el LLM."""
-    PROSE = "prose"
-    TABLE = "table"
-    CODE = "code"
-    LIST = "list"
-    MIXED = "mixed"
+class DocumentNature(str, Enum):
+    """Clasificación del tipo de documento."""
+    TRANSACTIONAL = "transactional"  # Facturas, contratos, pedidos
+    NARRATIVE = "narrative"          # Artículos, historias, blogs
+    TECHNICAL = "technical"          # Manuales, documentación técnica
+    LEGAL = "legal"                  # Documentos legales, términos
+    RECIPE = "recipe"                # Recetas, procedimientos paso a paso
+    MANUAL = "manual"                # Guías de usuario, instructivos
+    MEDICAL = "medical"              # Documentos médicos, informes
+    ACADEMIC = "academic"            # Papers, investigación
+    OTHER = "other"                  # Otros
 
 
-class EnrichedSection(BaseModel):
+class DocumentContext(BaseModel):
     """
-    Sección enriquecida generada por el LLM.
-    
-    Representa una unidad semántica del documento con metadata
-    para optimizar búsqueda vectorial y BM25.
+    Contexto del documento completo.
+    Se genera UNA VEZ por documento para inyectar en chunks.
     """
-    section_id: str = Field(..., description="ID único de la sección (sec_001, sec_002, etc.)")
-    context_breadcrumb: str = Field(..., description="Ruta jerárquica del contenido")
-    content_type: ContentType = Field(default=ContentType.PROSE, description="Tipo de contenido")
-    tags: List[str] = Field(default_factory=list, description="Tags semánticos")
-    keywords: List[str] = Field(default_factory=list, description="Keywords específicas/entidades")
-    language: str = Field(default="es", description="Idioma del contenido (es/en)")
-    content_description: Optional[str] = Field(None, description="Descripción para tablas/código")
-    content: str = Field(..., description="Contenido formateado")
+    document_id: str
+    document_name: str
+    summary: str = Field(..., description="Resumen de 2-3 párrafos del documento")
+    main_topics: List[str] = Field(default_factory=list, description="Temas principales")
+    document_type: str = Field(default="other", description="Tipo detectado")
+    key_entities: List[str] = Field(default_factory=list, description="Entidades clave")
+    language: str = Field(default="es", description="Idioma detectado")
+
+
+class EnrichedChunk(BaseModel):
+    """
+    Chunk enriquecido con técnicas agnósticas avanzadas.
     
-    # Metadata adicional para tracking
-    word_count: int = Field(default=0, description="Conteo de palabras")
+    Cada campo tiene un propósito específico en el pipeline RAG:
+    - content_contextualized: Para generar el embedding (mejora calidad vectorial)
+    - search_anchors: Para BM25 + Full-Text Index (mejora recall)
+    - atomic_facts: Para búsqueda exacta de datos
+    - fact_density: Para Score-Boosting en reranking
+    - normalized_entities: Para filtrado estructurado
+    """
+    # Identificadores
+    chunk_id: str
+    document_id: str
+    chunk_index: int
+    
+    # Contenido
+    content_raw: str = Field(..., description="Contenido original sin modificar")
+    content_contextualized: str = Field(
+        ..., 
+        description="Contenido con prefijo de contexto (USAR PARA EMBEDDINGS)"
+    )
+    contextual_prefix: str = Field(
+        ..., 
+        description="Prefijo que sitúa el chunk en contexto global"
+    )
+    
+    # Search Anchors - Queries sintéticas para mejorar retrieval
+    search_anchors: List[str] = Field(
+        default_factory=list,
+        description="5-10 formas en que un usuario buscaría esta información"
+    )
+    
+    # Atomic Facts - Hechos concretos para búsqueda exacta
+    atomic_facts: List[str] = Field(
+        default_factory=list,
+        description="Hechos verificables extraídos (Categoría: valor)"
+    )
+    
+    # Fact Density - Métrica de calidad objetiva
+    fact_density: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Densidad de hechos concretos (0-1). Usado para Score-Boosting"
+    )
+    
+    # Entidades normalizadas - Para filtrado estructurado
+    normalized_entities: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Entidades normalizadas (person, organization, date, amount, location)"
+    )
+    
+    # Clasificación
+    document_nature: str = Field(
+        default="other",
+        description="Tipo de documento (transactional, narrative, technical, etc.)"
+    )
+    
+    # Metadata adicional
+    word_count: int = Field(default=0)
+    language: str = Field(default="es")
     
     class Config:
         use_enum_values = True
@@ -45,131 +115,206 @@ class EnrichedSection(BaseModel):
 
 class PreprocessingResult(BaseModel):
     """Resultado completo del preprocesamiento de un documento."""
-    sections: List[EnrichedSection] = Field(default_factory=list)
-    total_sections: int = Field(default=0)
+    
+    # Chunks enriquecidos
+    chunks: List[EnrichedChunk] = Field(default_factory=list)
+    total_chunks: int = Field(default=0)
+    
+    # Contexto del documento
+    document_context: Optional[DocumentContext] = None
+    
+    # Tracking
     processing_errors: List[str] = Field(default_factory=list)
     llm_usage: Dict[str, int] = Field(default_factory=dict)
     
-    # Metadata del documento
+    # Metadata
     document_name: str = Field(default="")
     document_type: str = Field(default="")
-    was_preprocessed: bool = Field(default=False, description="True si se usó LLM, False si fallback")
+    was_preprocessed: bool = Field(default=False)
+    
+    # Estadísticas
+    avg_fact_density: float = Field(default=0.0)
+    total_search_anchors: int = Field(default=0)
+    total_atomic_facts: int = Field(default=0)
 
 
 # =============================================================================
 # PARSER FUNCTIONS
 # =============================================================================
 
-def parse_llm_output(raw_output: str) -> List[EnrichedSection]:
+def parse_document_context_response(raw_output: str) -> Dict[str, Any]:
     """
-    Parsea la salida del LLM en objetos EnrichedSection.
+    Parsea la respuesta del LLM para contexto de documento.
     
     Args:
-        raw_output: Texto crudo de la respuesta del LLM
+        raw_output: Respuesta JSON del LLM
         
     Returns:
-        Lista de EnrichedSection parseadas
+        Dict con summary, main_topics, document_type, key_entities
     """
-    sections = []
-    
-    # Regex para extraer secciones
-    section_pattern = r'<<<SECTION>>>(.*?)<<<END_SECTION>>>'
-    section_matches = re.findall(section_pattern, raw_output, re.DOTALL)
-    
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"[PARSER] Found {len(section_matches)} raw sections in LLM output")
-    
-    for i, section_text in enumerate(section_matches):
-        try:
-            section = _parse_single_section(section_text.strip())
-            if section:
-                sections.append(section)
-            else:
-                logger.warning(f"[PARSER] Failed to parse section {i+1}")
-        except Exception as e:
-            logger.error(f"[PARSER] Exception parsing section {i+1}: {e}")
-            continue
-    
-    logger.info(f"[PARSER] Successfully parsed {len(sections)}/{len(section_matches)} sections")
-    return sections
-
-
-def _parse_single_section(section_text: str) -> Optional[EnrichedSection]:
-    """
-    Parsea una sección individual.
-    
-    Args:
-        section_text: Texto de una sección (sin delimitadores)
-        
-    Returns:
-        EnrichedSection o None si falla el parsing
-    """
-    # Patrones para extraer campos
-    patterns = {
-        'section_id': r'\[section_id:\s*([^\]]+)\]',
-        'context': r'\[context:\s*([^\]]+)\]',
-        'content_type': r'\[content_type:\s*([^\]]+)\]',
-        'tags': r'\[tags:\s*([^\]]+)\]',
-        'keywords': r'\[keywords:\s*([^\]]+)\]',
-        'language': r'\[language:\s*([^\]]+)\]',
-        'content_description': r'\[content_description:\s*([^\]]+)\]',
-    }
-    
-    # Extraer campos
-    extracted = {}
-    for field, pattern in patterns.items():
-        match = re.search(pattern, section_text, re.IGNORECASE)
-        if match:
-            extracted[field] = match.group(1).strip()
-    
-    # Extraer contenido (todo después del separador ---)
-    content_match = re.search(r'---\s*\n(.*)', section_text, re.DOTALL)
-    if not content_match:
-        return None
-    
-    content = content_match.group(1).strip()
-    if not content:
-        return None
-    
-    # Validar campos requeridos
-    section_id = extracted.get('section_id', '')
-    context = extracted.get('context', '')
-    
-    if not section_id:
-        section_id = "sec_unknown"
-    if not context:
-        context = "Documento → Sección"
-    
-    # Parsear tags y keywords
-    tags = _parse_comma_list(extracted.get('tags', ''))
-    keywords = _parse_comma_list(extracted.get('keywords', ''))
-    
-    # Parsear content_type
-    content_type_str = extracted.get('content_type', 'prose').lower()
     try:
-        content_type = ContentType(content_type_str)
-    except ValueError:
-        content_type = ContentType.PROSE
+        # Limpiar respuesta
+        cleaned = _clean_json_response(raw_output)
+        data = json.loads(cleaned)
+        
+        return {
+            "summary": data.get("summary", ""),
+            "main_topics": data.get("main_topics", []),
+            "document_type": data.get("document_type", "other"),
+            "key_entities": data.get("key_entities", []),
+            "language": data.get("language", "es")
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing document context JSON: {e}")
+        return {
+            "summary": "",
+            "main_topics": [],
+            "document_type": "other",
+            "key_entities": [],
+            "language": "es"
+        }
+
+
+def parse_chunk_enrichment_response(raw_output: str) -> Dict[str, Any]:
+    """
+    Parsea la respuesta del LLM para enriquecimiento de chunk.
     
-    # Crear sección
-    return EnrichedSection(
-        section_id=section_id,
-        context_breadcrumb=context,
-        content_type=content_type,
-        tags=tags,
-        keywords=keywords,
-        language=extracted.get('language', 'es'),
-        content_description=extracted.get('content_description'),
-        content=content,
-        word_count=len(content.split())
+    Args:
+        raw_output: Respuesta JSON del LLM
+        
+    Returns:
+        Dict con contextual_prefix, search_anchors, atomic_facts, 
+        fact_density, normalized_entities, document_nature
+    """
+    try:
+        # Limpiar respuesta
+        cleaned = _clean_json_response(raw_output)
+        data = json.loads(cleaned)
+        
+        # Validar y normalizar fact_density
+        fact_density = data.get("fact_density", 0.5)
+        if isinstance(fact_density, str):
+            try:
+                fact_density = float(fact_density)
+            except ValueError:
+                fact_density = 0.5
+        fact_density = max(0.0, min(1.0, fact_density))
+        
+        # Validar search_anchors
+        search_anchors = data.get("search_anchors", [])
+        if not isinstance(search_anchors, list):
+            search_anchors = []
+        search_anchors = [str(s).strip() for s in search_anchors if s]
+        
+        # Validar atomic_facts
+        atomic_facts = data.get("atomic_facts", [])
+        if not isinstance(atomic_facts, list):
+            atomic_facts = []
+        atomic_facts = [str(f).strip() for f in atomic_facts if f]
+        
+        # Validar normalized_entities
+        normalized_entities = data.get("normalized_entities", {})
+        if not isinstance(normalized_entities, dict):
+            normalized_entities = {}
+        # Filtrar entidades vacías
+        normalized_entities = {
+            k: v for k, v in normalized_entities.items() 
+            if v and str(v).strip()
+        }
+        
+        # Validar document_nature
+        document_nature = data.get("document_nature", "other")
+        valid_natures = [n.value for n in DocumentNature]
+        if document_nature not in valid_natures:
+            document_nature = "other"
+        
+        return {
+            "contextual_prefix": data.get("contextual_prefix", "").strip(),
+            "search_anchors": search_anchors,
+            "atomic_facts": atomic_facts,
+            "fact_density": fact_density,
+            "normalized_entities": normalized_entities,
+            "document_nature": document_nature
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing chunk enrichment JSON: {e}")
+        logger.debug(f"Raw output was: {raw_output[:500]}...")
+        return _get_fallback_enrichment()
+
+
+def _clean_json_response(raw: str) -> str:
+    """Limpia respuesta del LLM para extraer JSON válido."""
+    # Eliminar bloques de código markdown
+    raw = re.sub(r'```json\s*', '', raw)
+    raw = re.sub(r'```\s*', '', raw)
+    
+    # Eliminar texto antes del primer {
+    first_brace = raw.find('{')
+    if first_brace > 0:
+        raw = raw[first_brace:]
+    
+    # Eliminar texto después del último }
+    last_brace = raw.rfind('}')
+    if last_brace > 0:
+        raw = raw[:last_brace + 1]
+    
+    return raw.strip()
+
+
+def _get_fallback_enrichment() -> Dict[str, Any]:
+    """Retorna enriquecimiento por defecto cuando falla el parsing."""
+    return {
+        "contextual_prefix": "",
+        "search_anchors": [],
+        "atomic_facts": [],
+        "fact_density": 0.3,  # Valor conservador
+        "normalized_entities": {},
+        "document_nature": "other"
+    }
+
+
+def create_enriched_chunk(
+    chunk_content: str,
+    chunk_id: str,
+    document_id: str,
+    chunk_index: int,
+    enrichment_data: Dict[str, Any]
+) -> EnrichedChunk:
+    """
+    Crea un EnrichedChunk a partir del contenido y datos de enriquecimiento.
+    
+    Args:
+        chunk_content: Contenido original del chunk
+        chunk_id: ID único del chunk
+        document_id: ID del documento padre
+        chunk_index: Índice del chunk en el documento
+        enrichment_data: Datos parseados del LLM
+        
+    Returns:
+        EnrichedChunk completamente poblado
+    """
+    contextual_prefix = enrichment_data.get("contextual_prefix", "")
+    
+    # Construir contenido contextualizado
+    if contextual_prefix:
+        content_contextualized = f"{contextual_prefix}\n\n{chunk_content}"
+    else:
+        content_contextualized = chunk_content
+    
+    return EnrichedChunk(
+        chunk_id=chunk_id,
+        document_id=document_id,
+        chunk_index=chunk_index,
+        content_raw=chunk_content,
+        content_contextualized=content_contextualized,
+        contextual_prefix=contextual_prefix,
+        search_anchors=enrichment_data.get("search_anchors", []),
+        atomic_facts=enrichment_data.get("atomic_facts", []),
+        fact_density=enrichment_data.get("fact_density", 0.5),
+        normalized_entities=enrichment_data.get("normalized_entities", {}),
+        document_nature=enrichment_data.get("document_nature", "other"),
+        word_count=len(chunk_content.split()),
+        language=enrichment_data.get("language", "es")
     )
-
-
-def _parse_comma_list(text: str) -> List[str]:
-    """Parsea una lista separada por comas."""
-    if not text:
-        return []
-    
-    items = [item.strip() for item in text.split(',')]
-    return [item for item in items if item]  # Filtrar vacíos

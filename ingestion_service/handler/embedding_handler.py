@@ -36,12 +36,14 @@ class EmbeddingHandler(BaseHandler):
         Envía chunks para generar embeddings.
         La respuesta llegará asíncronamente via callback.
         
-        NO requiere agent_id real.
+        NOTA: Se usa chunk.content que ya contiene content_contextualized
+        (con el prefijo de contexto) para mejor calidad de embedding.
         """
         if not chunks:
             return
         
         # Preparar textos y IDs
+        # IMPORTANTE: chunk.content ya es content_contextualized si se usó preprocesamiento
         texts = [chunk.content for chunk in chunks]
         chunk_ids = [chunk.chunk_id for chunk in chunks]
         
@@ -52,7 +54,6 @@ class EmbeddingHandler(BaseHandler):
             else str(rag_config.embedding_model)
         )
         
-        # Metadata adicional
         # Crear DomainAction sin agent_id específico
         action = DomainAction(
             action_type="embedding.batch_process",
@@ -77,6 +78,6 @@ class EmbeddingHandler(BaseHandler):
         )
         
         self._logger.info(
-            f"[EMBEDDING] Sent {len(chunks)} chunks for embeddings (Model: {model_value})",
-            extra={"task_id": str(task_id)}
+            f"Sent {len(chunks)} chunks for embeddings (content already contextualized)",
+            extra={"task_id": str(task_id), "tenant_id": str(tenant_id)}
         )

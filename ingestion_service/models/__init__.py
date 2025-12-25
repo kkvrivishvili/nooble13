@@ -13,8 +13,14 @@ from .ingestion_models import (
 )
 from .preprocessing_models import (
     ContentType,
+    DocumentNature,
+    DocumentContext,
+    EnrichedChunk,
     EnrichedSection,
     PreprocessingResult,
+    parse_document_context_response,
+    parse_chunk_enrichment_response,
+    create_enriched_chunk,
     parse_llm_output
 )
 
@@ -27,7 +33,13 @@ __all__ = [
     "IngestionProgress",
     "ChunkModel",
     "ContentType",
+    "DocumentNature",
+    "DocumentContext",
+    "EnrichedChunk",
     "EnrichedSection",
     "PreprocessingResult",
+    "parse_document_context_response",
+    "parse_chunk_enrichment_response",
+    "create_enriched_chunk",
     "parse_llm_output"
 ]
