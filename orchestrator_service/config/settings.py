@@ -4,6 +4,7 @@ Extiende CommonAppSettings con configuraciones específicas.
 """
 from typing import Optional
 from pydantic import Field
+from pydantic_settings import SettingsConfigDict
 
 from common.config.base_settings import CommonAppSettings
 

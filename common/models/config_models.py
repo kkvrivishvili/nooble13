@@ -16,10 +16,10 @@ class EmbeddingModel(str, Enum):
 
 class ChatModel(str, Enum):
     """Modelos de chat soportados en Groq."""
-    LLAMA3_70B = "llama-3.3-70b-versatile"
-    LLAMA3_8B = "llama-3.3-8b-instruct"
-    MIXTRAL_8X7B = "mixtral-8x7b-32768"
-    GEMMA_7B = "gemma-7b-it"
+    LLAMA3_8B = "llama-3.1-8b-instant"
+    GPT_OSS_120B = "openai/gpt-oss-120b"
+    GPT_OSS_20B = "openai/gpt-oss-20b"
+    LLAMA3_3_70B = "llama-3.3-70b-versatile"
 
 
 class ExecutionConfig(BaseModel):
@@ -49,7 +49,9 @@ class ExecutionConfig(BaseModel):
     tool_timeout: int = Field(
         default=30,
         gt=0,
-        description="Timeout en segundos para ejecución de herramientas"
+        alias="timeout_seconds",
+        validation_alias="timeout_seconds",
+        description="Timeout en segundos para ejecución de herramientas (mapeado de timeout_seconds)"
     )
     max_iterations: int = Field(
         default=10,
@@ -58,7 +60,11 @@ class ExecutionConfig(BaseModel):
         description="Máximo de iteraciones para el loop ReAct"
     )
     
-    model_config = {"extra": "forbid"}
+    # Campos adicionales de frontend para evitar errores de validación
+    history_enabled: bool = Field(default=True, description="Compatibilidad con frontend")
+    history_window: int = Field(default=10, description="Compatibilidad con frontend")
+    
+    model_config = {"extra": "ignore", "populate_by_name": True}
 
 
 class QueryConfig(BaseModel):
@@ -133,7 +139,7 @@ class QueryConfig(BaseModel):
         description="Número máximo de reintentos para la API de Groq (None usa el valor por defecto del servicio)"
     )
     
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
 
 class RAGConfig(BaseModel):
@@ -228,4 +234,4 @@ class RAGConfig(BaseModel):
         description="Longitud máxima del texto para el embedding, si se requiere truncamiento."
     )
     
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
