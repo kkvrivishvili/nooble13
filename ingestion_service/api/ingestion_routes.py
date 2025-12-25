@@ -43,7 +43,7 @@ async def ingest_document(
     - document_id siempre generado por el servicio
     """
     try:
-        logger.info(
+        logger.debug(
             "POST /ingest - user_id=%s tenant_id=%s doc_name=%s type=%s",
             user_auth.get("user_id"),
             user_auth.get("app_metadata", {}).get("tenant_id"),
@@ -56,12 +56,9 @@ async def ingest_document(
         if not tenant_id:
             # Fallback: usar user_id como tenant_id temporalmente
             tenant_id = user_auth["user_id"]
-            logger.warning(f"No tenant_id in JWT, using user_id: {tenant_id}")
+            logger.debug(f"No tenant_id in JWT, using user_id: {tenant_id}")
         
-        logger.info(
-            f"Iniciando ingestion: collection={request.collection_id}, "
-            f"agents={request.agent_ids}, tenant={tenant_id}"
-        )
+        logger.info(f"[API] POST /ingest - doc: {request.document_name}, collection: {request.collection_id}")
         
         # Procesar ingestion
         result = await ingestion_service.ingest_document(
@@ -119,7 +116,7 @@ async def upload_and_ingest(
     FastAPI automáticamente los convierte en lista.
     """
     try:
-        logger.info(
+        logger.debug(
             "POST /upload - user_id=%s tenant_id=%s filename=%s size=%s content_type=%s agent_ids=%s",
             user_auth.get("user_id"),
             user_auth.get("app_metadata", {}).get("tenant_id"),
@@ -128,6 +125,7 @@ async def upload_and_ingest(
             file.content_type,
             agent_ids
         )
+        logger.info(f"[API] POST /upload - file: {file.filename}, type: {file.content_type}")
         
         # Validar tamaño
         if file.size and file.size > settings.max_file_size_mb * 1024 * 1024:

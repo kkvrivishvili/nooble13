@@ -189,3 +189,4 @@ sprints/
 
 # Ignore .tanstack directory
 .tanstack/
+.env

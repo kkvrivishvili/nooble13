@@ -77,6 +77,6 @@ class EmbeddingHandler(BaseHandler):
         )
         
         self._logger.info(
-            f"Sent {len(chunks)} chunks for embeddings",
-            extra={"task_id": str(task_id), "tenant_id": str(tenant_id)}
+            f"[EMBEDDING] Sent {len(chunks)} chunks for embeddings (Model: {model_value})",
+            extra={"task_id": str(task_id)}
         )

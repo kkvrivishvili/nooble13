@@ -112,8 +112,9 @@ class PreprocessHandler(BaseHandler):
         )
         
         # Verificar si está habilitado
-        self._logger.info(
-            f"--- [PREPROCESSOR START] ---",
+        self._logger.info(f"[PREPROCESSOR] Starting LLM enrichment for: {document_name}")
+        self._logger.debug(
+            f"Preprocess Details",
             extra={
                 "document_name": document_name,
                 "document_type": document_type,
@@ -137,12 +138,12 @@ class PreprocessHandler(BaseHandler):
             blocks = self._split_into_blocks(content)
             total_blocks = len(blocks)
             
-            self._logger.info(
-                f"[PREPROCESSOR] Document split into {total_blocks} blocks",
+            self._logger.info(f"[PREPROCESSOR] Document split into {total_blocks} blocks (total: {len(content)} chars)")
+            self._logger.debug(
+                f"Split details",
                 extra={
                     "document_name": document_name,
                     "total_blocks": total_blocks,
-                    "content_length": len(content),
                     "avg_block_size": len(content) // total_blocks if total_blocks > 0 else 0
                 }
             )
@@ -155,7 +156,7 @@ class PreprocessHandler(BaseHandler):
             
             for i, block in enumerate(blocks):
                 block_num = i + 1
-                self._logger.info(f"--- [PREPROCESSOR BLOCK {block_num}/{total_blocks}] ---")
+                self._logger.info(f"[PREPROCESSOR] Processing block {block_num}/{total_blocks}...")
                 is_continuation = i > 0
                 
                 # Construir metadata del bloque
@@ -207,13 +208,7 @@ class PreprocessHandler(BaseHandler):
             result.was_preprocessed = True
             
             self._logger.info(
-                f"Document preprocessing completed",
-                extra={
-                    "document_name": document_name,
-                    "total_sections": len(all_sections),
-                    "total_tokens": total_usage.get("total_tokens", 0),
-                    "errors": len(result.processing_errors)
-                }
+                f"[PREPROCESSOR] Completed: {len(all_sections)} sections, {total_usage.get('total_tokens', 0)} tokens, {len(result.processing_errors)} errors"
             )
             
             return result

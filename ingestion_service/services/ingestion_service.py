@@ -563,18 +563,18 @@ class IngestionService(BaseService):
             # Convertir a dict usando alias para Supabase (user_id)
             document_data = metadata_model.model_dump(by_alias=True, mode='json')
             
-            # LOG DETALLADO PARA DIAGNÓSTICO
-            self._logger.info(f"Supabase persistence payload keys: {list(document_data.keys())}")
+            # LOG PARA DIAGNÓSTICO (DEBUG)
+            self._logger.debug(f"Supabase persistence payload keys: {list(document_data.keys())}")
             self._logger.debug(f"Supabase persistence payload (JSON): {json.dumps(document_data, indent=2)}")
             
-            self._logger.info(f"Persisting metadata to Supabase: {metadata_model.document_name} ({metadata_model.document_id})")
+            self._logger.info(f"[INGESTION] Persisting metadata for: {metadata_model.document_name}")
 
             # Usar admin_client para evitar problemas de RLS en worker de background
             # y race conditions con el auth token compartido
             def _insert_document():
                 # Forzar admin_client para bypass de RLS
                 client = self.supabase_client.admin_client or self.supabase_client.client
-                self._logger.info(f"Using Supabase client type: {'admin' if self.supabase_client.admin_client else 'standard'}")
+                self._logger.debug(f"Using Supabase client type: {'admin' if self.supabase_client.admin_client else 'standard'}")
                 return (
                     client
                     .table("documents_rag")
@@ -588,10 +588,7 @@ class IngestionService(BaseService):
             if hasattr(response, 'error') and response.error:
                 raise Exception(f"Supabase API error (PGRST): {response.error}")
                 
-            self._logger.info(
-                f"Metadata persisted successfully for document {task['document_id']} "
-                f"in collection {task['collection_id']}"
-            )
+            self._logger.info(f"[INGESTION] Metadata persisted successfully in Supabase")
             
         except Exception as e:
             self._logger.error(f"Error persisting metadata in Supabase: {e}", exc_info=True)

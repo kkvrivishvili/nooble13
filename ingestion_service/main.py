@@ -46,7 +46,14 @@ async def lifespan(app: FastAPI):
     global callback_workers, worker_tasks
     
     try:
-        logger.info(f"=== Iniciando {settings.service_name} v{settings.service_version} ===")
+        logger.info(f"--- [CORE] Initializing {settings.service_name} v{settings.service_version} ---")
+        
+        # Log Summary of configuration as requested
+        logger.info(
+            f"[CONFIG] Preprocessing: {'ENABLED' if settings.enable_document_preprocessing else 'DISABLED'}, "
+            f"Model: {settings.preprocessing_model}, "
+            f"Workers: {settings.embedding_callback_worker_count if settings.embedding_callback_worker_enabled else 0}"
+        )
         
         # 1. Inicializar Redis
         redis_manager = RedisManager(settings)
@@ -121,7 +128,7 @@ async def lifespan(app: FastAPI):
                 )
                 worker_tasks.append(task)
         
-        logger.info(f"=== {settings.service_name} iniciado correctamente ===")
+        logger.info(f"--- [CORE] {settings.service_name} ready ---")
         
         yield
         
@@ -129,7 +136,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error durante el inicio: {e}")
         raise
     finally:
-        logger.info(f"=== Cerrando {settings.service_name} ===")
+        logger.info(f"--- [CORE] Shutting down {settings.service_name} ---")
         
         # Cleanup
         for worker in callback_workers:

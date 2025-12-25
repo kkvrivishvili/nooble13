@@ -77,7 +77,7 @@ class IngestionWebSocketManager(BaseWebSocketManager):
                 self._task_connections[task_id] = []
             self._task_connections[task_id].append(connection_id)
             
-            self.logger.info(f"WebSocket conectado para task {task_id}")
+            self.logger.info(f"[WS] Connected: task {task_id}")
             
             # Mantener conexión viva
             while True:

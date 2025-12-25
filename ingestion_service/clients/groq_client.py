@@ -51,21 +51,16 @@ class GroqClient:
         ]
         
         try:
-            self._logger.info(
-                f"--- [GROQ REQUEST] ---",
-                extra={
-                    "model": model,
-                    "system_prompt_len": len(system_prompt),
-                    "content_len": len(content)
-                }
-            )
+            self._logger.debug(f"GROQ Request - Model: {model}, Prompt Len: {len(system_prompt)}, Content Len: {len(content)}")
             self._logger.debug(f"SYSTEM PROMPT:\n{system_prompt}")
             self._logger.debug(f"CONTENT PREVIEW:\n{content[:500]}...")
+            
+            self._logger.info(f"[GROQ] Sending block to LLM ({model}, input: {len(content)} chars)...")
             
             response = await self.client.chat.completions.create(
                 messages=messages,
                 model=model,
-                temperature=0.1,  # Temperatura baja para consistencia en preprocesamiento
+                temperature=0.1,
             )
             
             output_text = response.choices[0].message.content
@@ -76,8 +71,7 @@ class GroqClient:
             }
             
             self._logger.info(
-                f"--- [GROQ RESPONSE] ---",
-                extra={"usage": usage}
+                f"[GROQ] Response received. Tokens: {usage['total_tokens']} (prompt: {usage['prompt_tokens']}, completion: {usage['completion_tokens']})"
             )
             self._logger.debug(f"RAW OUTPUT:\n{output_text}")
             

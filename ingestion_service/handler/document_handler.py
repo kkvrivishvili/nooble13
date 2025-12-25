@@ -148,11 +148,7 @@ class DocumentHandler(BaseHandler):
             
             if self.preprocessing_enabled and self.preprocess_handler:
                 try:
-                    # LOG CRÍTICO: Verificar si entramos aquí
-                    self._logger.info(
-                        f"--- [DEBUG] Inyectando Preprocessing Flow para: {request.document_name} ---",
-                        extra={"handler": "DocumentHandler"}
-                    )
+                    self._logger.debug(f"Initiating preprocessing flow for: {request.document_name}")
                     
                     preprocessing_result = await self.preprocess_handler.preprocess_document(
                         content=document.text,
@@ -175,12 +171,11 @@ class DocumentHandler(BaseHandler):
                         )
                         preprocessing_used = True
                         
-                        self._logger.info(
-                            f"Document preprocessed with LLM: {len(chunks)} chunks from "
-                            f"{len(preprocessing_result.sections)} sections",
+                        self._logger.info(f"[DOC_HANDLER] Created {len(chunks)} chunks from LLM sections")
+                        self._logger.debug(
+                            f"Preprocessing result for {request.document_name}",
                             extra={
                                 "document_id": document_id,
-                                "document_name": request.document_name,
                                 "llm_tokens": preprocessing_result.llm_usage.get("total_tokens", 0),
                                 "preprocessing_errors": len(preprocessing_result.processing_errors)
                             }

@@ -38,7 +38,9 @@ class EmbeddingCallbackWorker(BaseWorker):
         """Procesa callbacks de embeddings."""
         try:
             if action.action_type == "ingestion.embedding_callback":
-                return await self.ingestion_service.handle_embedding_callback(action)
+                result = await self.ingestion_service.handle_embedding_callback(action)
+                self.logger.info(f"[WORKER] Callback processed for task {action.task_id}")
+                return result
             
             self.logger.warning(f"Tipo de callback no reconocido: {action.action_type}")
             return None

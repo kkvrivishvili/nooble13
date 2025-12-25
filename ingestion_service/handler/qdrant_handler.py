@@ -105,21 +105,17 @@ class QdrantHandler(BaseHandler):
         if not chunks:
             return {"stored": 0, "failed": 0}
         
-        # LOG DETALLADO: Parámetros de entrada
-        self._logger.info(
-            f"[INGESTION] store_chunks iniciado",
+        self._logger.debug(
+            f"[QDRANT] store_chunks initiated",
             extra={
                 "tenant_id": tenant_id,
                 "collection_id": collection_id,
                 "agent_ids": agent_ids,
-                "agent_ids_type": type(agent_ids).__name__,
-                "agent_ids_count": len(agent_ids) if agent_ids else 0,
                 "chunks_count": len(chunks),
-                "collection_name": self.collection_name,
-                "embedding_model": embedding_metadata.get("embedding_model"),
-                "embedding_dimensions": embedding_metadata.get("embedding_dimensions")
+                "collection_name": self.collection_name
             }
         )
+        self._logger.info(f"[QDRANT] Storing {len(chunks)} chunks in collection {self.collection_name}...")
         
         points = []
         failed_chunks = []
@@ -177,33 +173,25 @@ class QdrantHandler(BaseHandler):
                 **chunk.metadata
             }
             
-            # LOG: Verificar enriquecimiento en el primer chunk
+            # LOG: Verificar enriquecimiento en el primer chunk (DEBUG)
             if i == 0:
-                self._logger.info(
+                self._logger.debug(
                     f"[QDRANT] Storing chunk with enrichment:",
                     extra={
                         "chunk_id": chunk.chunk_id,
-                        "keywords_count": len(chunk.keywords) if chunk.keywords else 0,
-                        "tags_count": len(chunk.tags) if chunk.tags else 0,
-                        "keywords": chunk.keywords[:5] if chunk.keywords else [],
-                        "tags": chunk.tags[:5] if chunk.tags else []
+                        "keywords": chunk.keywords,
+                        "tags": chunk.tags
                     }
                 )
             
-            # LOG DETALLADO: Payload del primer chunk como ejemplo
+            # LOG DETALLADO: Payload del primer chunk como ejemplo (DEBUG)
             if i == 0:
-                self._logger.info(
-                    f"[INGESTION] Ejemplo de payload (chunk 1/{len(chunks)})",
+                self._logger.debug(
+                    f"[QDRANT] Sample payload for chunk 1/{len(chunks)}",
                     extra={
                         "chunk_id": chunk.chunk_id,
-                        "document_id": chunk.document_id,
-                        "payload_tenant_id": payload["tenant_id"],
-                        "payload_collection_id": payload["collection_id"],
-                        "payload_agent_ids": payload["agent_ids"],
-                        "payload_agent_ids_type": type(payload["agent_ids"]).__name__,
                         "content_length": len(payload["content"]),
-                        "embedding_length": len(chunk.embedding) if chunk.embedding else 0,
-                        "chunk_metadata_keys": list(chunk.metadata.keys()) if chunk.metadata else []
+                        "metadata_keys": list(chunk.metadata.keys())
                     }
                 )
             
@@ -237,19 +225,15 @@ class QdrantHandler(BaseHandler):
                     wait=True
                 )
                 
-                # LOG DETALLADO: Confirmación de almacenamiento exitoso
-                self._logger.info(
-                    f"[INGESTION] Almacenados {len(points)} chunks en Qdrant exitosamente",
+                # Confirmación de almacenamiento exitoso
+                self._logger.info(f"[QDRANT] Successfully stored {len(points)} chunks (Failed: {len(failed_chunks)})")
+                self._logger.debug(
+                    f"[QDRANT] Upsert details",
                     extra={
                         "collection_name": self.collection_name,
                         "tenant_id": tenant_id,
                         "collection_id": collection_id,
-                        "agent_ids": agent_ids,
-                        "stored_count": len(points),
-                        "failed_count": len(failed_chunks),
-                        "chunk_ids_sample": [p.id for p in points[:3]],  # Primeros 3 IDs como muestra
-                        "embedding_model": embedding_metadata.get("embedding_model"),
-                        "embedding_dimensions": embedding_metadata.get("embedding_dimensions")
+                        "stored_count": len(points)
                     }
                 )
                 
@@ -274,34 +258,12 @@ class QdrantHandler(BaseHandler):
                         with_payload=True
                     )
                     
-                    if scroll_result[0]:  # Si hay resultados
-                        sample_point = scroll_result[0][0]
-                        self._logger.info(
-                            f"[INGESTION] Verificación post-upsert exitosa",
-                            extra={
-                                "verification_point_id": str(sample_point.id),
-                                "verification_payload_tenant_id": sample_point.payload.get("tenant_id"),
-                                "verification_payload_collection_id": sample_point.payload.get("collection_id"),
-                                "verification_payload_agent_ids": sample_point.payload.get("agent_ids"),
-                                "verification_payload_document_id": sample_point.payload.get("document_id")
-                            }
-                        )
+                    if scroll_result[0]:
+                        self._logger.debug(f"[QDRANT] post-upsert verification successful")
                     else:
-                        self._logger.warning(
-                            f"[INGESTION] ADVERTENCIA: No se pudo verificar inmediatamente los datos almacenados",
-                            extra={
-                                "tenant_id": tenant_id,
-                                "collection_id": collection_id
-                            }
-                        )
+                        self._logger.warning(f"[QDRANT] WARNING: post-upsert verification failed to find stored data")
                 except Exception as verify_e:
-                    self._logger.warning(
-                        f"[INGESTION] Error en verificación post-upsert: {verify_e}",
-                        extra={
-                            "tenant_id": tenant_id,
-                            "collection_id": collection_id
-                        }
-                    )
+                    self._logger.debug(f"[QDRANT] post-upsert verification error: {verify_e}")
                 
             except Exception as e:
                 self._logger.error(
