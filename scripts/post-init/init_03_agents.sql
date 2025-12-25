@@ -17,7 +17,7 @@ CREATE TABLE public.agent_templates (
     icon text DEFAULT '🤖',
     system_prompt_template text NOT NULL,
     default_query_config jsonb DEFAULT '{
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-20b",
         "temperature": 0.7,
         "max_tokens": 4096,
         "top_p": 0.9,
@@ -75,7 +75,7 @@ CREATE TABLE public.agents (
     
     -- Configuration (copied from template, can be customized)
     query_config jsonb NOT NULL DEFAULT '{
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-20b",
         "temperature": 0.7,
         "max_tokens": 4096,
         "top_p": 0.9,

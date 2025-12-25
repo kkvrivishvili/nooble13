@@ -177,6 +177,19 @@ class QdrantHandler(BaseHandler):
                 **chunk.metadata
             }
             
+            # LOG: Verificar enriquecimiento en el primer chunk
+            if i == 0:
+                self._logger.info(
+                    f"[QDRANT] Storing chunk with enrichment:",
+                    extra={
+                        "chunk_id": chunk.chunk_id,
+                        "keywords_count": len(chunk.keywords) if chunk.keywords else 0,
+                        "tags_count": len(chunk.tags) if chunk.tags else 0,
+                        "keywords": chunk.keywords[:5] if chunk.keywords else [],
+                        "tags": chunk.tags[:5] if chunk.tags else []
+                    }
+                )
+            
             # LOG DETALLADO: Payload del primer chunk como ejemplo
             if i == 0:
                 self._logger.info(

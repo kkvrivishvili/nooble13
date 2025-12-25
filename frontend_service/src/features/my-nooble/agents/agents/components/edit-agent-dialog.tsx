@@ -90,12 +90,12 @@ const emojiOptions = [
 
 const modelOptions = [
   { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Versatile)' },
-  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  { value: 'claude-3-sonnet', label: 'Claude 3 Sonnet' },
+  { value: 'openai/gpt-oss-120b', label: 'GPT-120B' },
+  { value: 'openai/gpt-oss-20b', label: 'GPT-20B' },
+  { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant' },
 ];
 
-export function EditAgentDialog({ agent, open, onOpenChange, onSuccess }: EditAgentDialogProps)  {
+export function EditAgentDialog({ agent, open, onOpenChange, onSuccess }: EditAgentDialogProps) {
   const [activeTab, setActiveTab] = useState('general');
 
   const form = useForm<EditAgentFormData>({
@@ -215,9 +215,8 @@ export function EditAgentDialog({ agent, open, onOpenChange, onSuccess }: EditAg
                                 key={emoji}
                                 type="button"
                                 onClick={() => field.onChange(emoji)}
-                                className={`w-8 h-8 flex items-center justify-center rounded hover:bg-muted transition-colors ${
-                                  field.value === emoji ? 'bg-primary/20 ring-1 ring-primary' : ''
-                                }`}
+                                className={`w-8 h-8 flex items-center justify-center rounded hover:bg-muted transition-colors ${field.value === emoji ? 'bg-primary/20 ring-1 ring-primary' : ''
+                                  }`}
                               >
                                 {emoji}
                               </button>

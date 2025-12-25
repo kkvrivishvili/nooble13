@@ -11,6 +11,12 @@ from .ingestion_models import (
     IngestionProgress,
     ChunkModel
 )
+from .preprocessing_models import (
+    ContentType,
+    EnrichedSection,
+    PreprocessingResult,
+    parse_llm_output
+)
 
 __all__ = [
     "IngestionStatus",
@@ -19,5 +25,9 @@ __all__ = [
     "DocumentIngestionRequest",
     "IngestionResponse",
     "IngestionProgress",
-    "ChunkModel"
+    "ChunkModel",
+    "ContentType",
+    "EnrichedSection",
+    "PreprocessingResult",
+    "parse_llm_output"
 ]

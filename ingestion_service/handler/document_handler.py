@@ -1,5 +1,7 @@
 """
 Handler optimizado para procesamiento avanzado de documentos.
+Incluye preprocesamiento con LLM para enriquecimiento semántico.
+
 Mantiene 100% de compatibilidad con el sistema existente de Nooble8.
 """
 import logging
@@ -7,7 +9,7 @@ import hashlib
 import uuid
 import re
 import os
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 from datetime import datetime
 
@@ -26,25 +28,61 @@ from llama_index.core.node_parser import SentenceSplitter
 
 from common.handlers.base_handler import BaseHandler
 from ..models import DocumentIngestionRequest, ChunkModel, DocumentType
+from ..models.preprocessing_models import EnrichedSection, PreprocessingResult
 from ..config.settings import IngestionSettings
+
+# Import condicional del PreprocessHandler
+try:
+    from .preprocess_handler import PreprocessHandler
+    PREPROCESS_AVAILABLE = True
+except ImportError:
+    PREPROCESS_AVAILABLE = False
 
 # Límites de tamaño para documentos (en bytes)
 MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DOCX_SIZE = 20 * 1024 * 1024  # 20MB
 MAX_TEXT_SIZE = 10 * 1024 * 1024  # 10MB
 
+
 class DocumentHandler(BaseHandler):
     """
     Handler optimizado para procesamiento robusto de documentos.
+    
+    Incluye preprocesamiento con LLM para:
+    - Formateo a Markdown estructurado
+    - Extracción de tags y keywords
+    - Chunking semántico basado en secciones
+    
     Compatible con el sistema existente de Nooble8 Ingestion Service.
     """
     
     def __init__(self, app_settings: IngestionSettings):
         """Inicializa el handler con la configuración de la aplicación."""
         super().__init__(app_settings)
-        # Cache de parsers por configuración
+        
+        # Cache de parsers por configuración (para fallback)
         self._parsers_cache = {}
-        self._logger.info("DocumentHandler initialized with enhanced extraction")
+        
+        # Inicializar PreprocessHandler si está disponible y habilitado
+        self.preprocess_handler: Optional[PreprocessHandler] = None
+        self.preprocessing_enabled = getattr(app_settings, 'enable_document_preprocessing', False)
+        
+        if PREPROCESS_AVAILABLE and self.preprocessing_enabled:
+            try:
+                self.preprocess_handler = PreprocessHandler(app_settings)
+                self._logger.info(
+                    "DocumentHandler initialized with LLM preprocessing enabled"
+                )
+            except Exception as e:
+                self._logger.warning(
+                    f"Failed to initialize PreprocessHandler: {e}. "
+                    "Falling back to standard processing."
+                )
+                self.preprocessing_enabled = False
+        else:
+            self._logger.info(
+                "DocumentHandler initialized (preprocessing disabled or unavailable)"
+            )
         
     def _get_parser(self, chunk_size: int, chunk_overlap: int) -> SentenceSplitter:
         """Obtiene o crea un parser con cache."""
@@ -70,6 +108,14 @@ class DocumentHandler(BaseHandler):
         """
         Procesa documento y retorna chunks manteniendo compatibilidad.
         
+        Si el preprocessing está habilitado:
+        1. Extrae texto crudo
+        2. Envía al LLM para formateo y enriquecimiento
+        3. Crea chunks desde secciones enriquecidas
+        
+        Si está deshabilitado o falla:
+        - Usa el flujo tradicional de chunking
+        
         Args:
             request: Request de ingestion con el documento
             document_id: ID del documento (UUID string)
@@ -87,25 +133,6 @@ class DocumentHandler(BaseHandler):
             # Cargar documento con método mejorado
             document, extraction_info = await self._load_document_enhanced(request)
             
-            # Limpieza avanzada de texto (excepto markdown)
-            if not extraction_info.get("is_markdown", False):
-                cleaned_text = self._clean_text(document.text)
-                # Reconstruir documento con texto limpio
-                document = Document(
-                    text=cleaned_text,
-                    metadata=document.metadata,
-                    id_=document.id_
-                )
-            
-            # Obtener parser con cache
-            parser = self._get_parser(
-                request.rag_config.chunk_size,
-                request.rag_config.chunk_overlap
-            )
-            
-            # Parsear en chunks
-            nodes = parser.get_nodes_from_documents([document])
-            
             # Obtener tipo de documento como string
             doc_type_value = (
                 request.document_type.value 
@@ -113,35 +140,71 @@ class DocumentHandler(BaseHandler):
                 else str(request.document_type)
             )
             
-            # Convertir a ChunkModel manteniendo estructura compatible
+            # ================================================================
+            # NUEVO: Intentar preprocesamiento con LLM
+            # ================================================================
             chunks = []
-            for idx, node in enumerate(nodes):
-                # Limpieza específica del chunk
-                chunk_content = self._clean_chunk_content(node.get_content())
-                
-                # Crear ChunkModel con estructura compatible
-                chunk = ChunkModel(
-                    chunk_id=str(uuid.uuid4()),
+            preprocessing_used = False
+            
+            if self.preprocessing_enabled and self.preprocess_handler:
+                try:
+                    # LOG CRÍTICO: Verificar si entramos aquí
+                    self._logger.info(
+                        f"--- [DEBUG] Inyectando Preprocessing Flow para: {request.document_name} ---",
+                        extra={"handler": "DocumentHandler"}
+                    )
+                    
+                    preprocessing_result = await self.preprocess_handler.preprocess_document(
+                        content=document.text,
+                        document_name=request.document_name,
+                        document_type=doc_type_value,
+                        page_count=extraction_info.get("page_count")
+                    )
+                    
+                    if preprocessing_result.was_preprocessed and preprocessing_result.sections:
+                        # Crear chunks desde secciones enriquecidas
+                        chunks = self._create_chunks_from_sections(
+                            sections=preprocessing_result.sections,
+                            document_id=document_id,
+                            tenant_id=tenant_id,
+                            collection_id=collection_id,
+                            agent_ids=agent_ids,
+                            request=request,
+                            extraction_info=extraction_info,
+                            preprocessing_result=preprocessing_result
+                        )
+                        preprocessing_used = True
+                        
+                        self._logger.info(
+                            f"Document preprocessed with LLM: {len(chunks)} chunks from "
+                            f"{len(preprocessing_result.sections)} sections",
+                            extra={
+                                "document_id": document_id,
+                                "document_name": request.document_name,
+                                "llm_tokens": preprocessing_result.llm_usage.get("total_tokens", 0),
+                                "preprocessing_errors": len(preprocessing_result.processing_errors)
+                            }
+                        )
+                        
+                except Exception as e:
+                    self._logger.error(
+                        f"LLM preprocessing failed, falling back to standard chunking: {e}",
+                        extra={"document_name": request.document_name}
+                    )
+            
+            # ================================================================
+            # FALLBACK: Chunking tradicional si preprocessing no se usó
+            # ================================================================
+            if not preprocessing_used:
+                chunks = await self._create_chunks_traditional(
+                    document=document,
+                    extraction_info=extraction_info,
+                    request=request,
                     document_id=document_id,
                     tenant_id=tenant_id,
-                    content=chunk_content,
-                    chunk_index=idx,
                     collection_id=collection_id,
-                    agent_ids=agent_ids if agent_ids else [],
-                    metadata={
-                        "document_name": request.document_name,
-                        "document_type": doc_type_value,
-                        "start_char_idx": getattr(node, 'start_char_idx', None),
-                        "end_char_idx": getattr(node, 'end_char_idx', None),
-                        "extraction_method": extraction_info.get("method", "standard"),
-                        "has_tables": extraction_info.get("has_tables", False),
-                        "page_count": extraction_info.get("page_count", None),
-                        "chunk_word_count": len(chunk_content.split()),
-                        "extraction_errors": extraction_info.get("errors", []),
-                        **request.metadata  # Preservar metadata del request
-                    }
+                    agent_ids=agent_ids
                 )
-                chunks.append(chunk)
             
             self._logger.info(
                 f"Document processed successfully: {len(chunks)} chunks",
@@ -150,6 +213,7 @@ class DocumentHandler(BaseHandler):
                     "document_name": request.document_name,
                     "document_type": doc_type_value,
                     "extraction_method": extraction_info.get("method"),
+                    "preprocessing_used": preprocessing_used,
                     "chunk_size": request.rag_config.chunk_size,
                     "chunk_overlap": request.rag_config.chunk_overlap,
                     "total_chunks": len(chunks),
@@ -161,6 +225,147 @@ class DocumentHandler(BaseHandler):
         except Exception as e:
             self._logger.error(f"Error processing document: {e}", exc_info=True)
             raise
+    
+    def _create_chunks_from_sections(
+        self,
+        sections: List[EnrichedSection],
+        document_id: str,
+        tenant_id: str,
+        collection_id: str,
+        agent_ids: List[str],
+        request: DocumentIngestionRequest,
+        extraction_info: Dict[str, Any],
+        preprocessing_result: PreprocessingResult
+    ) -> List[ChunkModel]:
+        """
+        Crea ChunkModels desde secciones enriquecidas por el LLM.
+        """
+        doc_type_value = (
+            request.document_type.value 
+            if hasattr(request.document_type, 'value')
+            else str(request.document_type)
+        )
+        
+        # LOG: Inicio de creación de chunks desde secciones enriquecidas
+        self._logger.info(
+            f"--- [INGESTION] Creating chunks from {len(sections)} LLM sections ---",
+            extra={
+                "document_id": document_id,
+                "tenant_id": tenant_id
+            }
+        )
+
+        chunks = []
+        for idx, section in enumerate(sections):
+            # El contenido ya está limpio y formateado por el LLM
+            chunk_content = section.content.strip()
+            
+            # Skip secciones vacías
+            if not chunk_content:
+                continue
+            
+            chunk = ChunkModel(
+                chunk_id=str(uuid.uuid4()),
+                document_id=document_id,
+                tenant_id=tenant_id,
+                content=chunk_content,
+                chunk_index=idx,
+                collection_id=collection_id,
+                agent_ids=agent_ids if agent_ids else [],
+                keywords=section.keywords,
+                tags=section.tags,
+                metadata={
+                    "document_name": request.document_name,
+                    "document_type": doc_type_value,
+                    "section_id": section.section_id,
+                    "context_breadcrumb": section.context_breadcrumb,
+                    "content_type": section.content_type,
+                    "was_preprocessed": True,
+                    **request.metadata
+                }
+            )
+            chunks.append(chunk)
+
+        self._logger.info(f"[INGESTION] Generated {len(chunks)} enriched chunks")
+        return chunks
+    
+    async def _create_chunks_traditional(
+        self,
+        document: Document,
+        extraction_info: Dict[str, Any],
+        request: DocumentIngestionRequest,
+        document_id: str,
+        tenant_id: str,
+        collection_id: str,
+        agent_ids: List[str]
+    ) -> List[ChunkModel]:
+        """
+        Crea chunks usando el método tradicional (SentenceSplitter).
+        
+        Usado como fallback cuando el preprocessing LLM no está disponible
+        o falla.
+        """
+        # Limpieza avanzada de texto (excepto markdown)
+        if not extraction_info.get("is_markdown", False):
+            cleaned_text = self._clean_text(document.text)
+            document = Document(
+                text=cleaned_text,
+                metadata=document.metadata,
+                id_=document.id_
+            )
+        
+        # Obtener parser con cache
+        parser = self._get_parser(
+            request.rag_config.chunk_size,
+            request.rag_config.chunk_overlap
+        )
+        
+        # Parsear en chunks
+        nodes = parser.get_nodes_from_documents([document])
+        
+        doc_type_value = (
+            request.document_type.value 
+            if hasattr(request.document_type, 'value')
+            else str(request.document_type)
+        )
+        
+        # Convertir a ChunkModel
+        chunks = []
+        for idx, node in enumerate(nodes):
+            chunk_content = self._clean_chunk_content(node.get_content())
+            
+            chunk = ChunkModel(
+                chunk_id=str(uuid.uuid4()),
+                document_id=document_id,
+                tenant_id=tenant_id,
+                content=chunk_content,
+                chunk_index=idx,
+                collection_id=collection_id,
+                agent_ids=agent_ids if agent_ids else [],
+                # Sin enriquecimiento LLM
+                keywords=[],
+                tags=[],
+                metadata={
+                    "document_name": request.document_name,
+                    "document_type": doc_type_value,
+                    "start_char_idx": getattr(node, 'start_char_idx', None),
+                    "end_char_idx": getattr(node, 'end_char_idx', None),
+                    "extraction_method": extraction_info.get("method", "standard"),
+                    "has_tables": extraction_info.get("has_tables", False),
+                    "page_count": extraction_info.get("page_count", None),
+                    "chunk_word_count": len(chunk_content.split()),
+                    "extraction_errors": extraction_info.get("errors", []),
+                    "preprocessing_used": False,
+                    **request.metadata
+                }
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    # =========================================================================
+    # MÉTODOS EXISTENTES (sin cambios)
+    # =========================================================================
     
     def _validate_document_size(self, request: DocumentIngestionRequest):
         """Valida el tamaño del documento antes de procesarlo."""
@@ -194,7 +399,7 @@ class DocumentHandler(BaseHandler):
         extraction_info = {
             "method": "standard", 
             "has_tables": False,
-            "errors": []  # Registro de errores parciales
+            "errors": []
         }
         
         source_value = (
@@ -213,7 +418,6 @@ class DocumentHandler(BaseHandler):
                 if not file_path.exists():
                     raise FileNotFoundError(f"File not found: {request.file_path}")
                 
-                # Procesar según tipo de archivo con métodos avanzados
                 if source_value == DocumentType.PDF.value:
                     content, pdf_info = self._extract_pdf_robust(file_path)
                     metadata["pages"] = pdf_info.get("page_count", 0)
@@ -228,29 +432,25 @@ class DocumentHandler(BaseHandler):
                     extraction_info["method"] = "markdown_native"
                     extraction_info["is_markdown"] = True
                     
-                else:  # TXT y otros formatos de texto plano
+                else:
                     content = file_path.read_text(encoding='utf-8', errors='ignore')
                     extraction_info["method"] = "plain_text"
                     
             elif request.url:
-                # Cargar desde URL
                 response = await self._fetch_url(str(request.url))
                 content = response
                 metadata["url"] = str(request.url)
                 extraction_info["method"] = "url_fetch"
                 
             elif request.content:
-                # Contenido directo
                 content = request.content
                 extraction_info["method"] = "direct_content"
             else:
                 raise ValueError("No content source provided")
             
-            # Validar contenido
             if not content or not content.strip():
                 raise ValueError("Document is empty or contains only whitespace")
             
-            # Agregar info de extracción a metadata
             metadata["extraction_info"] = extraction_info
             
             return Document(
@@ -261,7 +461,6 @@ class DocumentHandler(BaseHandler):
             
         except Exception as e:
             self._logger.error(f"Document loading failed: {e}")
-            # Intentar recuperación de emergencia
             if request.file_path:
                 try:
                     content = self._fallback_text_extraction(Path(request.file_path))
@@ -278,14 +477,7 @@ class DocumentHandler(BaseHandler):
             raise
     
     def _extract_pdf_robust(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
-        """
-        Extrae texto de PDF con sistema estratificado de 3 niveles.
-        
-        Estrategia:
-        1. Intento: pymupdf4llm (estructura markdown)
-        2. Intento: PyMuPDF estándar (con detección de tablas)
-        3. Intento: Fallback con llama_index
-        """
+        """Extrae texto de PDF con sistema estratificado de 3 niveles."""
         extraction_info = {
             "method": "unknown",
             "has_tables": False,
@@ -293,7 +485,6 @@ class DocumentHandler(BaseHandler):
             "errors": []
         }
         
-        # 1. Primer intento: pymupdf4llm (si disponible)
         if PYMUPDF4LLM_AVAILABLE:
             try:
                 markdown_text = pymupdf4llm.to_markdown(
@@ -317,14 +508,12 @@ class DocumentHandler(BaseHandler):
                 extraction_info["errors"].append(f"pymupdf4llm: {str(e)}")
                 self._logger.warning(f"pymupdf4llm extraction failed, trying standard: {e}")
         
-        # 2. Segundo intento: PyMuPDF estándar mejorado
         try:
             return self._extract_with_pymupdf(file_path)
         except Exception as e:
             extraction_info["errors"].append(f"pymupdf_standard: {str(e)}")
             self._logger.warning(f"PyMuPDF standard extraction failed: {e}")
         
-        # 3. Tercer intento: Fallback con llama_index
         try:
             content = self._fallback_pdf_extraction(file_path)
             with fitz.open(str(file_path)) as pdf:
@@ -352,16 +541,13 @@ class DocumentHandler(BaseHandler):
                 page_count = len(pdf)
                 
                 for page_num, page in enumerate(pdf, 1):
-                    # Agregar separador de página
                     if text_parts:
                         text_parts.append(f"\n\n--- Page {page_num} ---\n\n")
                     
-                    # Extraer texto de la página
                     page_text = page.get_text(sort=True)
                     if page_text.strip():
                         text_parts.append(page_text)
                     
-                    # Intentar detectar y extraer tablas
                     try:
                         tables = page.find_tables()
                         if tables:
@@ -420,27 +606,19 @@ class DocumentHandler(BaseHandler):
             raise
     
     def _extract_docx_robust(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
-        """
-        Extrae texto de DOCX con sistema de 2 niveles.
-        
-        Estrategia:
-        1. Intento: python-docx con estructura mejorada
-        2. Intento: Fallback con llama_index
-        """
+        """Extrae texto de DOCX con sistema de 2 niveles."""
         extraction_info = {
             "method": "unknown",
             "has_tables": False,
             "errors": []
         }
         
-        # 1. Primer intento: extracción estructurada
         try:
             return self._extract_docx_enhanced(file_path)
         except Exception as e:
             extraction_info["errors"].append(f"docx_enhanced: {str(e)}")
             self._logger.warning(f"Enhanced DOCX extraction failed, trying fallback: {e}")
         
-        # 2. Segundo intento: fallback con llama_index
         try:
             content = self._fallback_docx_extraction(file_path)
             return content, {
@@ -460,18 +638,15 @@ class DocumentHandler(BaseHandler):
             paragraphs = []
             has_tables = False
             
-            # Extraer párrafos con detección de encabezados
             for para in doc.paragraphs:
                 text = para.text.strip()
                 if text:
-                    # Detectar encabezados por estilo
                     if para.style and para.style.name and 'Heading' in para.style.name:
                         heading_level = self._get_heading_level(para.style.name)
                         paragraphs.append(f"\n{'#' * heading_level} {text}\n")
                     else:
                         paragraphs.append(text)
             
-            # Extraer tablas
             if doc.tables:
                 has_tables = True
                 for table in doc.tables:
@@ -511,7 +686,7 @@ class DocumentHandler(BaseHandler):
         if 'Heading 4' in style_name: return 4
         if 'Heading 5' in style_name: return 5
         if 'Heading 6' in style_name: return 6
-        return 3  # Valor por defecto para encabezados no identificados
+        return 3
     
     def _fallback_docx_extraction(self, file_path: Path) -> str:
         """Método de respaldo para DOCX usando llama_index."""
@@ -527,79 +702,49 @@ class DocumentHandler(BaseHandler):
     def _fallback_text_extraction(self, file_path: Path) -> str:
         """Método de emergencia para cualquier tipo de archivo."""
         try:
-            # Intento básico de lectura de texto
             return file_path.read_text(encoding='utf-8', errors='ignore')
         except:
             try:
-                # Fallback a binario con reemplazo de errores
                 return file_path.read_bytes().decode('utf-8', errors='replace')
             except Exception as e:
                 self._logger.error(f"Emergency text extraction failed: {e}")
                 return f"CONTENT EXTRACTION FAILED: {str(e)}"
     
     def _clean_text(self, text: str) -> str:
-        """
-        Limpia y normaliza el texto extraído.
-        Preserva marcadores estructurales importantes.
-        """
-        # Preservar marcadores de tabla si existen
+        """Limpia y normaliza el texto extraído."""
         if "[TABLE]" in text or "[/TABLE]" in text:
-            # No limpiar agresivamente si hay tablas
             return self._gentle_clean(text)
         
-        # Limpieza estándar
-        # Eliminar caracteres de control excepto newlines y tabs
         text = ''.join(char for char in text if char == '\n' or char == '\t' or ord(char) >= 32)
-        
-        # Normalizar espacios múltiples
         text = re.sub(r' +', ' ', text)
-        
-        # Normalizar saltos de línea múltiples (máximo 2)
         text = re.sub(r'\n{3,}', '\n\n', text)
         
-        # Eliminar espacios al inicio y final de líneas
         lines = text.split('\n')
         lines = [line.strip() for line in lines]
         text = '\n'.join(lines)
         
-        # Eliminar líneas que solo contienen caracteres especiales repetidos
         lines = text.split('\n')
         cleaned_lines = []
         for line in lines:
-            # Preservar líneas con contenido real
             if line and not all(c in '.-_=*~`#' for c in line):
                 cleaned_lines.append(line)
-            elif not line:  # Preservar líneas vacías para mantener párrafos
+            elif not line:
                 cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines)
 
     def _gentle_clean(self, text: str) -> str:
         """Limpieza suave para preservar tablas y estructura."""
-        # Solo eliminar caracteres de control peligrosos
         text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\t')
-        
-        # Normalizar solo espacios excesivos (más de 3)
         text = re.sub(r'    +', '  ', text)
-        
-        # Normalizar saltos excesivos (más de 3)
         text = re.sub(r'\n{4,}', '\n\n\n', text)
-        
         return text
 
     def _clean_chunk_content(self, content: str) -> str:
-        """
-        Limpieza mínima específica para chunks.
-        Preserva formato importante.
-        """
-        # Eliminar espacios al inicio y final
+        """Limpieza mínima específica para chunks."""
         content = content.strip()
-        
-        # Si no hay indicadores de tabla, normalizar espacios
         if '[TABLE]' not in content and '|' not in content:
-            # Normalizar espacios múltiples a uno solo
             content = ' '.join(content.split())
-        
         return content
 
     async def _fetch_url(self, url: str) -> str:
@@ -619,5 +764,3 @@ class DocumentHandler(BaseHandler):
     def _generate_doc_hash(self, content: str) -> str:
        """Genera hash único para el documento."""
        return hashlib.sha256(content.encode()).hexdigest()[:16]
-    # _fetch_url y _generate_doc_hash se mantienen igual que en el original
-    # (omitiendo por brevedad pero deben incluirse)

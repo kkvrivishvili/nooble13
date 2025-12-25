@@ -11,6 +11,9 @@ aiofiles==24.1.0
 # Redis client
 redis==5.0.0
 
+# Groq client
+groq==0.29.0
+
 # HTTP client for document fetching
 requests==2.32.4
 
