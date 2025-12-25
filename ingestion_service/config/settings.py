@@ -57,7 +57,7 @@ class IngestionSettings(CommonAppSettings):
     
     # Preprocessing model configuration
     preprocessing_model: str = Field(
-        default="deepseek-r1-distill-llama-70b",
+        default="openai/gpt-oss-120b",
         description="Modelo LLM a usar para preprocesamiento"
     )
     
