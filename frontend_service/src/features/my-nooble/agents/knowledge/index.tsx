@@ -40,9 +40,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { 
-  IconUpload, 
-  IconFile, 
+import {
+  IconUpload,
+  IconFile,
   IconFileText,
   IconLink,
   IconTrash,
@@ -72,7 +72,7 @@ export default function AgentsKnowledgePage() {
   const { setSubPages } = usePageContext()
   const location = useLocation()
   const queryClient = useQueryClient()
-  
+
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
   const [filterAgent, setFilterAgent] = useState<string>('all')
@@ -164,11 +164,11 @@ export default function AgentsKnowledgePage() {
           message: 'Processing document...'
         }
       }))
-      
+
       // Create WebSocket for progress
       const token = await getAuthToken()
       const ws = ingestionApi.createProgressWebSocket(response.task_id, token)
-      
+
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data)
         const msgType = data.message_type || data.type
@@ -185,20 +185,20 @@ export default function AgentsKnowledgePage() {
               message: progress.message
             }
           }))
-          
+
           if (normalizedStatus === 'completed' || normalizedStatus === 'failed') {
             // Close websocket and refresh data
             ws.close()
             queryClient.invalidateQueries({ queryKey: ['user-documents'] })
             queryClient.invalidateQueries({ queryKey: ['knowledge-stats'] })
-            
+
             // Show notification
             if (normalizedStatus === 'completed') {
               toast.success(`Document uploaded successfully: ${variables.file.name}`)
             } else {
               toast.error(`Failed to upload document: ${progress.error || 'Unknown error'}`)
             }
-            
+
             // Remove from progress after 3 seconds
             setTimeout(() => {
               setUploadProgress(prev => {
@@ -210,7 +210,7 @@ export default function AgentsKnowledgePage() {
           }
         }
       }
-      
+
       websocketsRef.current[response.task_id] = ws
     },
     onError: (error: Error) => {
@@ -306,7 +306,7 @@ export default function AgentsKnowledgePage() {
 
   const handleEdit = (doc: DocumentRecord) => {
     setEditingDocument(doc)
-    setSelectedAgentIds(doc.metadata?.agent_ids || [])
+    setSelectedAgentIds(doc.agent_ids || [])
     setIsEditDialogOpen(true)
   }
 
@@ -339,8 +339,8 @@ export default function AgentsKnowledgePage() {
   const filteredDocuments = documents.filter(doc => {
     const matchesSearch = doc.document_name.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesType = filterType === 'all' || doc.document_type === filterType
-    const matchesAgent = filterAgent === 'all' || 
-      (doc.metadata?.agent_ids || []).includes(filterAgent)
+    const matchesAgent = filterAgent === 'all' ||
+      (doc.agent_ids || []).includes(filterAgent)
     return matchesSearch && matchesType && matchesAgent
   })
 
@@ -362,11 +362,10 @@ export default function AgentsKnowledgePage() {
         <CardContent className="space-y-4">
           {/* Upload Zone */}
           <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-              isDragging
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${isDragging
                 ? 'border-primary bg-primary/5'
                 : 'border-gray-300 dark:border-gray-700'
-            } ${!hasAgents ? 'opacity-60 pointer-events-none' : ''}`}
+              } ${!hasAgents ? 'opacity-60 pointer-events-none' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -418,7 +417,7 @@ export default function AgentsKnowledgePage() {
                     <span className="text-sm font-medium">{progress.fileName}</span>
                     <Badge variant={
                       progress.status === 'completed' ? 'default' :
-                      progress.status === 'failed' ? 'destructive' : 'secondary'
+                        progress.status === 'failed' ? 'destructive' : 'secondary'
                     }>
                       {progress.status}
                     </Badge>
@@ -501,7 +500,7 @@ export default function AgentsKnowledgePage() {
                 ) : (
                   filteredDocuments.map((doc) => {
                     const FileIcon = getFileIcon(doc.document_type)
-                    const agentIds = doc.metadata?.agent_ids || []
+                    const agentIds = doc.agent_ids || []
                     return (
                       <TableRow key={doc.id}>
                         <TableCell>
@@ -516,7 +515,7 @@ export default function AgentsKnowledgePage() {
                         <TableCell>
                           <Badge variant={
                             doc.status === 'completed' ? 'default' :
-                            doc.status === 'failed' ? 'destructive' : 'secondary'
+                              doc.status === 'failed' ? 'destructive' : 'secondary'
                           }>
                             {doc.status}
                           </Badge>
@@ -586,11 +585,10 @@ export default function AgentsKnowledgePage() {
               {agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
-                    selectedAgentIds.includes(agent.id)
+                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${selectedAgentIds.includes(agent.id)
                       ? 'border-primary bg-primary/5'
                       : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                    }`}
                   onClick={() => toggleAgentSelection(agent.id)}
                 >
                   <div>
@@ -635,7 +633,7 @@ export default function AgentsKnowledgePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Document</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteConfirmDoc?.document_name}"? 
+              Are you sure you want to delete "{deleteConfirmDoc?.document_name}"?
               This will remove the document and all its chunks from the knowledge base.
               This action cannot be undone.
             </AlertDialogDescription>

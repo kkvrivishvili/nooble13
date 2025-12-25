@@ -48,8 +48,8 @@ export interface DocumentRecord {
   total_chunks: number;
   processed_chunks: number;
   status: string;
+  agent_ids: string[];
   metadata: {
-    agent_ids: string[];
     [key: string]: any;
   };
   created_at: string;
@@ -274,7 +274,7 @@ class IngestionAPI {
       .from('documents_rag')
       .select('*')
       .eq('user_id', user.id)
-      .contains('metadata', { agent_ids: [agentId] })
+      .contains('agent_ids', [agentId])
       .order('created_at', { ascending: false });
 
     handleApiError(error, 'getDocumentsByAgent');
@@ -353,7 +353,7 @@ class IngestionAPI {
 
     documents.forEach((doc: DocumentRecord) => {
       totalChunks += doc.total_chunks || 0;
-      const agentIds = doc.metadata?.agent_ids || [];
+      const agentIds = doc.agent_ids || [];
       agentIds.forEach((id: string) => uniqueAgents.add(id));
     });
 
