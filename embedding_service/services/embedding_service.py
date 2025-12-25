@@ -75,42 +75,41 @@ class EmbeddingService(BaseService):
         """
         Procesa una DomainAction según su tipo.
         """
-        self._logger.info(
-            f"Procesando acción: {action.action_type} ({action.action_id})",
-            extra={
-                "action_id": str(action.action_id),
-                "action_type": action.action_type,
-                "tenant_id": action.tenant_id,
-                "correlation_id": str(action.correlation_id) if action.correlation_id else None
-            }
-        )
-        
         try:
-            # Enrutar según el tipo de acción
-            if action.action_type == "embedding.generate":
-                return await self._handle_generate(action)
-                
-            elif action.action_type == "embedding.generate_query":
-                return await self._handle_generate_query(action)
-                
-            elif action.action_type == "embedding.batch_process":
-                return await self._handle_batch_process(action)
-                
+            action_type = action.action_type
+            log_context = action.get_log_extra()
+            
+            self._logger.info(
+                f"[EmbeddingService] BEGIN processing action: {action_type}",
+                extra=log_context
+            )
+        
+            if action_type == "embedding.generate":
+                result = await self._handle_generate(action)
+            elif action_type == "embedding.generate_query":
+                result = await self._handle_generate_query(action)
+            elif action_type == "embedding.batch_process":
+                result = await self._handle_batch_process(action)
             else:
-                self._logger.warning(f"Tipo de acción no soportado: {action.action_type}")
+                self._logger.warning(f"Tipo de acción no soportado: {action_type}")
                 raise InvalidActionError(
-                    f"Acción '{action.action_type}' no es soportada por Embedding Service"
+                    f"Acción '{action_type}' no es soportada por Embedding Service"
                 )
+            
+            self._logger.info(
+                f"[EmbeddingService] END processing action: {action_type} - SUCCESS",
+                extra=log_context
+            )
+            return result
                 
-        except ValidationError as e:
-            self._logger.error(f"Error de validación en {action.action_type}: {e}")
-            raise InvalidActionError(f"Error de validación en el payload: {str(e)}")
-            
-        except ExternalServiceError:
-            raise
-            
         except Exception as e:
-            self._logger.exception(f"Error inesperado procesando {action.action_type}")
+            self._logger.error(
+                f"[EmbeddingService] END processing action: {action.action_type} - FAILED: {str(e)}",
+                extra=action.get_log_extra() if action else {},
+                exc_info=True
+            )
+            if isinstance(e, (ValidationError, InvalidActionError, ExternalServiceError)):
+                raise
             raise ExternalServiceError(f"Error interno en Embedding Service: {str(e)}")
     
     async def _handle_generate(self, action: DomainAction) -> Dict[str, Any]:

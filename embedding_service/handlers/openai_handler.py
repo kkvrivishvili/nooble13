@@ -77,19 +77,17 @@ class OpenAIHandler(BaseHandler):
         model = model or self.app_settings.default_model
         encoding_format = encoding_format or "float"
         
-        # Logging detallado de entrada
+        # Baseline context
+        log_context = {
+            "tenant_id": str(tenant_id) if tenant_id else None,
+            "agent_id": str(agent_id) if agent_id else None,
+            "trace_id": str(trace_id) if trace_id else None,
+            "model": model
+        }
+
         self._logger.info(
-            f"[OpenAIHandler] generate_embeddings iniciado: "
-            f"texts_count={len(texts)}, model={model}, dimensions={dimensions}, "
-            f"tenant_id={tenant_id}, agent_id={agent_id}, trace_id={trace_id}",
-            extra={
-                "tenant_id": str(tenant_id) if tenant_id else None,
-                "agent_id": str(agent_id) if agent_id else None,
-                "trace_id": str(trace_id) if trace_id else None,
-                "model": model,
-                "dimensions": dimensions,
-                "texts_sample": texts[:2] if texts else []  # Solo log primeros 2 para debug
-            }
+            f"[OpenAIHandler] generate_embeddings: STARTing for {len(texts)} texts",
+            extra=log_context
         )
         
         # Log RAG config si existe
@@ -142,17 +140,11 @@ class OpenAIHandler(BaseHandler):
             
             # Log de resultado exitoso
             self._logger.info(
-                f"[OpenAIHandler] Embeddings generados exitosamente: "
-                f"processing_time={result.get('processing_time_ms')}ms, "
-                f"tokens={result.get('total_tokens', 0)}, "
-                f"dimensions={result.get('dimensions', 0)}",
+                f"[OpenAIHandler] generate_embeddings: SUCCESS ({result.get('processing_time_ms')}ms, {result.get('total_tokens', 0)} tokens)",
                 extra={
-                    "tenant_id": str(tenant_id) if tenant_id else None,
-                    "agent_id": str(agent_id) if agent_id else None,
-                    "model": model,
+                    **log_context,
                     "text_count": len(texts),
                     "total_tokens": result.get("total_tokens", 0),
-                    "dimensions": result.get("dimensions", 0),
                     "processing_time_ms": result.get("processing_time_ms", 0)
                 }
             )

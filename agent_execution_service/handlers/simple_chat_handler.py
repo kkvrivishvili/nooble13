@@ -89,18 +89,16 @@ class SimpleChatHandler:
             # Validar y parsear el payload (solo datos de chat)
             chat_request = ChatRequest(**payload)
 
-            # Logs estructurados del request (sin contenido de mensajes)
+            log_context = {
+                "tenant_id": str(tenant_id),
+                "session_id": str(session_id),
+                "agent_id": str(agent_id),
+                "task_id": str(task_id)
+            }
+
             self.logger.info(
-                "Processing simple chat",
-                extra={
-                    "tenant_id": str(tenant_id),
-                    "session_id": str(session_id),
-                    "agent_id": str(agent_id),
-                    "task_id": str(task_id),
-                    "messages_count": len(chat_request.messages),
-                    "has_tools": bool(chat_request.tools),
-                    "has_tool_choice": bool(chat_request.tool_choice is not None)
-                }
+                f"[SimpleChatHandler] BEGIN handle_simple_chat (messages={len(chat_request.messages)})",
+                extra=log_context
             )
             
             # Procesar el chat con IDs de contexto explícitos
@@ -140,15 +138,16 @@ class SimpleChatHandler:
             Respuesta del chat con el mensaje generado
         """
         try:
+            log_context = {
+                "tenant_id": str(tenant_id),
+                "session_id": str(session_id),
+                "agent_id": str(agent_id),
+                "task_id": str(task_id)
+            }
+
             self.logger.info(
-                "Iniciando procesamiento de chat simple",
-                extra={
-                    "tenant_id": str(tenant_id),
-                    "session_id": str(session_id),
-                    "agent_id": str(agent_id),
-                    "task_id": str(task_id),
-                    "messages_count": len(chat_request.messages)
-                }
+                f"[SimpleChatHandler] STEP 1: Getting conversation (messages_count={len(chat_request.messages)})",
+                extra=log_context
             )
             
             # 1. Obtener o crear conversación
@@ -169,22 +168,10 @@ class SimpleChatHandler:
                 user_messages=user_messages
             )
 
-            # Log detalle de mensajes integrados (roles y snippet del último user)
-            try:
-                roles_seq = [m.role for m in integrated_messages]
-                last_user = next((m.content for m in reversed(integrated_messages) if m.role == "user" and m.content), None)
-                self.logger.debug(
-                    "Mensajes integrados listos para Query Service",
-                    extra={
-                        "conversation_id": str(history.conversation_id),
-                        "roles": roles_seq,
-                        "last_user_snippet": (last_user[:120] + "...") if last_user and len(last_user) > 120 else last_user,
-                        "total_messages": len(integrated_messages)
-                    }
-                )
-            except Exception:
-                # Logging defensivo para no romper el flujo por errores de log
-                pass
+            self.logger.info(
+                f"[SimpleChatHandler] STEP 2: History integrated (total_messages={len(integrated_messages)})",
+                extra={**log_context, "conversation_id": str(history.conversation_id)}
+            )
             
             # 4. Preparar payload para query service (solo campos válidos para ChatRequest)
             payload = {
@@ -199,13 +186,9 @@ class SimpleChatHandler:
             # Opcionalmente incluimos conversation_id para tracking
             payload["conversation_id"] = str(history.conversation_id)
             
-            self.logger.debug(
-                "Payload preparado para query service",
-                extra={
-                    "agent_id": str(agent_id),
-                    "total_messages": len(integrated_messages),
-                    "task_id": str(task_id)
-                }
+            self.logger.info(
+                f"[SimpleChatHandler] STEP 3: Calling QueryService (agent={agent_id})",
+                extra=log_context
             )
             
             # 5. Enviar consulta al LLM
@@ -220,29 +203,17 @@ class SimpleChatHandler:
             )
 
             # Resumen de respuesta del Query Service
-            try:
-                msg_content = (
-                    query_response.get("message", {}).get("content")
-                    if isinstance(query_response.get("message"), dict)
-                    else None
-                )
-                fallback_resp = query_response.get("response")
-                content_len = len(msg_content or fallback_resp or "")
-                self.logger.info(
-                    "Respuesta recibida de Query Service",
-                    extra={
-                        "has_message": isinstance(query_response.get("message"), dict),
-                        "has_legacy_response": fallback_resp is not None,
-                        "content_length": content_len,
-                        "usage": query_response.get("usage"),
-                        "sources_count": len(query_response.get("sources", [])),
-                        "execution_time_ms": query_response.get("execution_time_ms"),
-                        "conversation_id": str(history.conversation_id),
-                        "task_id": str(task_id)
-                    }
-                )
-            except Exception:
-                pass
+            m_content = query_response.get("message", {}).get("content") if isinstance(query_response.get("message"), dict) else query_response.get("response", "")
+            
+            self.logger.info(
+                f"[SimpleChatHandler] STEP 4: QueryService response received (len={len(m_content)})",
+                extra={
+                    **log_context,
+                    "usage": query_response.get("usage"),
+                    "sources_count": len(query_response.get("sources", [])),
+                    "execution_time_ms": query_response.get("execution_time_ms")
+                }
+            )
             
             # 6. Crear respuesta completa
             response_message = ChatMessage(
@@ -293,12 +264,8 @@ class SimpleChatHandler:
             )
             
             self.logger.info(
-                "Chat simple procesado exitosamente",
-                extra={
-                    "conversation_id": history.conversation_id,
-                    "task_id": str(task_id),
-                    "response_length": len(response_message.content)
-                }
+                f"[SimpleChatHandler] END handle_simple_chat - SUCCESS",
+                extra=log_context
             )
             
             return chat_response

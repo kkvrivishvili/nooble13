@@ -88,65 +88,44 @@ class QueryService(BaseService):
         """
         Procesa una DomainAction según su tipo.
         """
-        self._logger.info(
-            f"Procesando acción: {action.action_type} ({action.action_id})",
-            extra={
-                "action_id": str(action.action_id),
-                "action_type": action.action_type,
-                "tenant_id": action.tenant_id,
-                "correlation_id": str(action.correlation_id) if action.correlation_id else None,
-                "task_id": str(action.task_id) if action.task_id else None
-            }
-        )
-        
         try:
-            if action.action_type == ACTION_QUERY_SIMPLE:
-                self._logger.info(
-                    "QueryService: recibida action query.simple",
-                    extra={
-                        "action_id": str(action.action_id),
-                        "tenant_id": str(action.tenant_id),
-                        "session_id": str(action.session_id),
-                        "task_id": str(action.task_id),
-                        "agent_id": str(action.agent_id)
-                    }
-                )
+            action_type = action.action_type
+            log_context = action.get_log_extra()
+
+            self._logger.info(
+                f"[QueryService] BEGIN processing action: {action_type}",
+                extra=log_context
+            )
+        
+            if action_type == ACTION_QUERY_SIMPLE:
                 result = await self._handle_simple(action)
-                try:
-                    # Resumen del resultado
-                    msg = result.get("message")
-                    content_len = len(msg.get("content", "")) if isinstance(msg, dict) else 0
-                    self._logger.info(
-                        "QueryService: result query.simple listo",
-                        extra={
-                            "action_id": str(action.action_id),
-                            "content_length": content_len,
-                            "usage": result.get("usage"),
-                            "sources_count": len(result.get("sources", []))
-                        }
-                    )
-                except Exception:
-                    pass
+                self._logger.info(
+                    f"[QueryService] END processing action: {action_type} - SUCCESS",
+                    extra=log_context
+                )
                 return result
-            elif action.action_type == ACTION_QUERY_ADVANCE:
-                return await self._handle_advance(action)
-            elif action.action_type == ACTION_QUERY_RAG:
-                return await self._handle_rag(action)
+            elif action_type == ACTION_QUERY_ADVANCE:
+                result = await self._handle_advance(action)
+                self._logger.info(f"[QueryService] END processing action: {action_type} - SUCCESS", extra=log_context)
+                return result
+            elif action_type == ACTION_QUERY_RAG:
+                result = await self._handle_rag(action)
+                self._logger.info(f"[QueryService] END processing action: {action_type} - SUCCESS", extra=log_context)
+                return result
             else:
-                self._logger.warning(f"Tipo de acción no soportado: {action.action_type}")
+                self._logger.warning(f"Tipo de acción no soportado: {action_type}")
                 raise InvalidActionError(
-                    f"Acción '{action.action_type}' no es soportada por Query Service"
+                    f"Acción '{action_type}' no es soportada por Query Service"
                 )
                 
-        except ValidationError as e:
-            self._logger.error(f"Error de validación en {action.action_type}: {e}")
-            raise AppValidationError(f"Payload inválido: {str(e)}")
-            
-        except ExternalServiceError:
-            raise
-            
         except Exception as e:
-            self._logger.exception(f"Error inesperado procesando {action.action_type}")
+            self._logger.error(
+                f"[QueryService] END processing action: {action.action_type} - FAILED: {str(e)}",
+                extra=action.get_log_extra() if action else {},
+                exc_info=True
+            )
+            if isinstance(e, (ValidationError, AppValidationError, ExternalServiceError)):
+                raise
             raise ExternalServiceError(f"Error interno en Query Service: {str(e)}")
     
     async def _handle_simple(self, action: DomainAction) -> Dict[str, Any]:

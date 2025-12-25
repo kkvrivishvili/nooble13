@@ -95,21 +95,18 @@ class SimpleHandler(BaseHandler):
                 else:
                     messages.append(msg_data)  # Ya es ChatMessage
 
-            # Log resumen de mensajes recibidos
-            try:
-                roles = [m.role for m in messages]
-                last_user = next((m.content for m in reversed(messages) if m.role == "user" and m.content), None)
-                self._logger.info(
-                    "QueryService.SimpleHandler: mensajes recibidos",
-                    extra={
-                        "query_id": conversation_id,
-                        "roles": roles,
-                        "last_user_snippet": (last_user[:120] + "...") if last_user and len(last_user) > 120 else last_user,
-                        "count": len(messages)
-                    }
-                )
-            except Exception:
-                pass
+            log_context = {
+                "tenant_id": str(tenant_id),
+                "session_id": str(session_id),
+                "agent_id": str(agent_id),
+                "task_id": str(task_id),
+                "query_id": conversation_id
+            }
+
+            self._logger.info(
+                f"QueryService.SimpleHandler: BEGIN (messages={len(messages)})",
+                extra=log_context
+            )
             
             # Extraer mensaje del usuario (último mensaje con role="user")
             user_message = None
@@ -122,12 +119,8 @@ class SimpleHandler(BaseHandler):
                 raise AppValidationError("No se encontró mensaje del usuario")
             
             self._logger.info(
-                f"Procesando simple query: '{user_message[:50]}...'",
-                extra={
-                    "query_id": conversation_id,
-                    "tenant_id": str(tenant_id),
-                    "collections": rag_config.collection_ids if rag_config else []
-                }
+                f"QueryService.SimpleHandler: STEP 1 - User message identified: '{user_message[:50]}...'",
+                extra=log_context
             )
             
             # Copiar mensajes originales para construir el payload final
@@ -154,12 +147,9 @@ class SimpleHandler(BaseHandler):
                     agent_id=agent_id
                 )
                 
-                # LOG DETALLADO: Parámetros de búsqueda RAG
                 self._logger.info(
-                    f"QueryService.SimpleHandler: COLLECTION_IDS USADOS = {rag_config.collection_ids}"
-                )
-                self._logger.info(
-                    f"QueryService.SimpleHandler: Parámetros RAG - tenant_id={tenant_id}, agent_id={agent_id}, top_k={rag_config.top_k}, threshold={rag_config.similarity_threshold}"
+                    f"QueryService.SimpleHandler: STEP 2 - Generating embedding for query (model={rag_config.embedding_model})",
+                    extra=log_context
                 )
                 
                 # 2. Buscar en vector store
@@ -175,19 +165,10 @@ class SimpleHandler(BaseHandler):
                     filters={"document_ids": rag_config.document_ids} if rag_config.document_ids else None
                 )
 
-                try:
-                    self._logger.info(
-                        "QueryService.SimpleHandler: RAG search ejecutada",
-                        extra={
-                            "query_id": conversation_id,
-                            "collections": rag_config.collection_ids,
-                            "top_k": rag_config.top_k,
-                            "threshold": rag_config.similarity_threshold,
-                            "results": len(search_results or [])
-                        }
-                    )
-                except Exception:
-                    pass
+                self._logger.info(
+                    f"QueryService.SimpleHandler: STEP 3 - Searching in Qdrant (collections={rag_config.collection_ids}, results={len(search_results or [])})",
+                    extra={**log_context, "top_k": rag_config.top_k, "threshold": rag_config.similarity_threshold}
+                )
                 
                 # Extraer sources para la respuesta si hay resultados
                 if search_results:
@@ -228,25 +209,10 @@ Knowledge Chunks:
                         final_messages[i] = ChatMessage(role="system", content=dynamic_prompt)
                         break
             
-            # LLAMADA A GROQ: enviar conversación completa desde el handler
-            # Log seguro de los mensajes finales (roles y conteo)
-            try:
-                roles_finales = [m.role for m in final_messages]
-                self._logger.info(
-                    "QueryService.SimpleHandler: mensajes finales preparados para Groq",
-                    extra={
-                        "query_id": conversation_id,
-                        "count": len(final_messages),
-                        "roles": roles_finales,
-                        "model": query_config.model.value,
-                        "temperature": query_config.temperature,
-                        "max_completion_tokens": query_config.max_tokens,
-                        "top_p": query_config.top_p,
-                        "has_stop": bool(query_config.stop),
-                    }
-                )
-            except Exception:
-                pass
+            self._logger.info(
+                f"QueryService.SimpleHandler: STEP 4 - Prompt prepared. Calling Groq (model={query_config.model.value})",
+                extra=log_context
+            )
             
             # Aplicar configuración dinámica si está especificada en query_config
             groq_client_instance = self.groq_client
@@ -339,19 +305,10 @@ Knowledge Chunks:
                 execution_time_ms=int((end_time - start_time) * 1000)
             )
 
-            try:
-                self._logger.info(
-                    "QueryService.SimpleHandler: respuesta construida",
-                    extra={
-                        "query_id": conversation_id,
-                        "processing_time": response.execution_time_ms,
-                        "context_chunks": len(sources),
-                        "usage": token_usage_model.model_dump(),
-                        "content_length": len(response_message.content or "")
-                    }
-                )
-            except Exception:
-                pass
+            self._logger.info(
+                f"QueryService.SimpleHandler: END - SUCCESS (time={response.execution_time_ms}ms)",
+                extra={**log_context, "usage": token_usage_model.model_dump(), "chunks": len(sources)}
+            )
             
             return response
             
