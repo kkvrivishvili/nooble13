@@ -1,0 +1,49 @@
+# Use an official Python runtime as a parent image
+FROM python:3.12-slim
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install system dependencies for Docling and spaCy
+# - poppler-utils: PDF rendering for Docling
+# - tesseract-ocr: OCR support (optional but recommended)
+# - libmagic1: File type detection
+# - build-essential: Compilation tools for some Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-spa \
+    tesseract-ocr-eng \
+    libmagic1 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the dependencies file to the working directory
+COPY .env .
+COPY extraction_service/requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download spaCy models (both md and lg for tier flexibility)
+# Note: lg model is ~549MB, md is ~92MB
+# In production, you might want to download only the needed model
+RUN python -m spacy download es_core_news_md && \
+    python -m spacy download es_core_news_lg && \
+    python -m spacy download en_core_web_md && \
+    python -m spacy download en_core_web_lg
+
+# Copy the service code into the container
+COPY extraction_service/ /app/extraction_service/
+
+# Copy the common module
+COPY common/ /app/common/
+
+# Set PYTHONPATH to include the root app directory
+ENV PYTHONPATH=/app
+
+# No HTTP port needed - this is a worker-only service
+# EXPOSE 8003
+
+# Define the command to run the worker
+CMD ["python", "-m", "extraction_service.main"]

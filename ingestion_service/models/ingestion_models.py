@@ -1,20 +1,24 @@
 """
 Modelos para Ingestion Service.
-Actualizados para soportar técnicas agnósticas de preprocesamiento.
+Actualizados para soportar:
+- Chunking jerárquico con herencia de contexto
+- Enriquecimiento de spaCy (entidades, noun_chunks)
+- Modos de procesamiento por tier
 """
 import uuid
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, HttpUrl
-from common.models.config_models import EmbeddingModel
+from common.models.config_models import EmbeddingModel, ProcessingMode, SpacyModelSize
 
 
 class IngestionStatus(str, Enum):
     """Estados de ingestion."""
     PENDING = "pending"
     PROCESSING = "processing"
-    PREPROCESSING = "preprocessing"  # Nuevo: fase de enriquecimiento LLM
+    EXTRACTING = "extracting"      # Nuevo: esperando extraction-service
+    PREPROCESSING = "preprocessing"  # Fase de enriquecimiento LLM (si aplica)
     CHUNKING = "chunking"
     EMBEDDING = "embedding"
     STORING = "storing"
@@ -40,10 +44,26 @@ class RAGIngestionConfig(BaseModel):
     chunk_size: int = Field(default=512)
     chunk_overlap: int = Field(default=50)
     
-    # Nuevas opciones para preprocesamiento agnóstico
-    enable_preprocessing: bool = Field(
-        default=True,
+    # Modo de procesamiento
+    processing_mode: ProcessingMode = Field(
+        default=ProcessingMode.FAST,
+        description="Modo de procesamiento según tier de suscripción"
+    )
+    spacy_model_size: SpacyModelSize = Field(
+        default=SpacyModelSize.MEDIUM,
+        description="Tamaño del modelo spaCy"
+    )
+    
+    # Opciones para preprocesamiento LLM (solo balanced/premium)
+    enable_llm_enrichment: bool = Field(
+        default=False,
         description="Habilitar preprocesamiento LLM para enriquecimiento"
+    )
+    llm_enrichment_percentage: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Porcentaje de chunks a enriquecer con LLM (0-100)"
     )
     fact_density_boost: float = Field(
         default=0.3,
@@ -95,6 +115,7 @@ class IngestionResponse(BaseModel):
     status: IngestionStatus = Field(..., description="Estado inicial")
     message: str = Field(..., description="Mensaje de estado")
     websocket_url: Optional[str] = Field(None, description="URL para seguimiento")
+    processing_mode: ProcessingMode = Field(default=ProcessingMode.FAST)
 
 
 class IngestionProgress(BaseModel):
@@ -113,7 +134,7 @@ class IngestionProgress(BaseModel):
 class ChunkModel(BaseModel):
     """
     Modelo para chunks de documento.
-    Actualizado para técnicas agnósticas de preprocesamiento.
+    Actualizado para chunking jerárquico y enriquecimiento spaCy.
     """
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     document_id: str  # UUID como string
@@ -133,7 +154,7 @@ class ChunkModel(BaseModel):
     embedding: Optional[List[float]] = None
     
     # ==========================================================================
-    # CAMPOS PARA TÉCNICAS AGNÓSTICAS
+    # CAMPOS PARA TÉCNICAS AGNÓSTICAS (LLM enrichment - solo balanced/premium)
     # ==========================================================================
     
     # Search Anchors - Para BM25 + Full-Text Index
@@ -167,10 +188,46 @@ class ChunkModel(BaseModel):
         default_factory=dict,
         description="Entidades normalizadas (person, organization, date, amount, location)"
     )
+    
+    # ==========================================================================
+    # CAMPOS DE SPACY (siempre disponibles)
+    # ==========================================================================
+    
+    spacy_entities: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Entidades detectadas por spaCy"
+    )
+    
+    spacy_noun_chunks: List[str] = Field(
+        default_factory=list,
+        description="Noun chunks extraídos por spaCy (clave para búsqueda agnóstica)"
+    )
 
     # ==========================================================================
-    # METADATA ESTRUCTURAL (Qdrant 1.16 Standard)
+    # CAMPOS DE CONTEXTO JERÁRQUICO
     # ==========================================================================
+    
+    section_title: Optional[str] = Field(
+        None,
+        description="Título de la sección donde está este chunk"
+    )
+    
+    section_level: Optional[int] = Field(
+        None,
+        ge=1,
+        le=6,
+        description="Nivel del heading de la sección (1-6)"
+    )
+    
+    section_context: Optional[str] = Field(
+        None,
+        description="Contexto completo de la jerarquía de secciones"
+    )
+
+    # ==========================================================================
+    # METADATA ESTRUCTURAL
+    # ==========================================================================
+    
     document_type: str = Field(default="other")
     document_name: str = Field(default="")
     language: str = Field(default="es")
@@ -181,7 +238,6 @@ class ChunkModel(BaseModel):
     # CAMPOS LEGACY (para compatibilidad)
     # ==========================================================================
     
-    # Keywords y tags legacy - ahora menos importantes que search_anchors
     keywords: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     
@@ -196,33 +252,47 @@ class ChunkModel(BaseModel):
     
     def get_bm25_text(self) -> str:
         """
-        Retorna texto optimizado para BM25/sparse embeddings con Term Boosting.
-        Prioriza la información "pulida" por el LLM mediante repetición (TF).
+        Retorna texto optimizado para BM25/sparse embeddings.
+        
+        Estructura jerárquica con boosting:
+        1. Contexto de sección (x3) - Máxima relevancia para coherencia
+        2. Noun chunks de spaCy (x3) - Términos técnicos agnósticos
+        3. Entidades (x2) - Nombres propios, fechas, montos
+        4. Search anchors si existen (x3) - Queries sintéticas LLM
+        5. Contenido raw (x1) - Base de seguridad
         """
         parts = []
         
-        # BOOSTING LÓGICO:
-        # Repetimos la información más valiosa para que el algoritmo BM25
-        # (que usa Term Frequency) le asigne puntuaciones más altas a estos chunks
-        # cuando el usuario busque términos presentes en los anchors o facts.
-
-        # Boost x3: Search Anchors (Consultas sintéticas - Máxima relevancia)
+        # Boost x3: Contexto de sección
+        if self.section_context:
+            parts.extend([self.section_context] * 3)
+        
+        # Boost x3: Noun chunks de spaCy (clave agnóstica)
+        if self.spacy_noun_chunks:
+            noun_chunks_text = " ".join(self.spacy_noun_chunks)
+            parts.extend([noun_chunks_text] * 3)
+        
+        # Boost x2: Entidades
+        if self.spacy_entities:
+            entities_text = " ".join(
+                ent.get("text", "") for ent in self.spacy_entities
+            )
+            parts.extend([entities_text] * 2)
+        
+        # Boost x3: Search Anchors (si hay LLM enrichment)
         if self.search_anchors:
             anchors_text = " ".join(self.search_anchors)
             parts.extend([anchors_text] * 3)
         
-        # Boost x2: Atomic Facts (Datos duros extraídos por LLM)
+        # Boost x2: Atomic Facts (si hay LLM enrichment)
         if self.atomic_facts:
             facts_text = " ".join(self.atomic_facts)
             parts.extend([facts_text] * 2)
         
-        # Boost x1: Contenido original (Base de seguridad para términos técnicos)
-        # Usamos content_raw en lugar de content para evitar que el 
-        # contextual_prefix (que se repite en cada chunk) diluya los pesos IDF.
+        # Boost x1: Contenido raw
         if self.content_raw:
             parts.append(self.content_raw)
         elif self.content:
-            # Si no hay raw, usamos el content (pero el LLM suele dar raw)
             parts.append(self.content)
             
         return " ".join(parts)

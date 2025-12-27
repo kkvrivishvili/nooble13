@@ -1,8 +1,8 @@
 """
 Configuración para Ingestion Service.
-Extiende CommonAppSettings con configuraciones específicas.
+Actualizado para soportar delegación a extraction-service.
 """
-from typing import Optional
+from typing import Optional, List
 from pydantic import Field
 
 from common.config.base_settings import CommonAppSettings
@@ -13,95 +13,150 @@ class IngestionSettings(CommonAppSettings):
     
     # Service identification
     service_name: str = Field(default="ingestion-service")
-    service_version: str = Field(default="2.1.0")  # Bump version for preprocessing
-    
-    # API Settings
-    api_host: str = Field(default="0.0.0.0")
-    api_port: int = Field(default=8002)
-    
-    # Supabase configuration
-    supabase_url: str = Field(..., description="URL de Supabase")
-    supabase_anon_key: str = Field(..., description="Clave anónima de Supabase")
-    supabase_service_key: Optional[str] = Field(
-        None, 
-        alias="SERVICE_ROLE_KEY",
-        validation_alias="SERVICE_ROLE_KEY",
-        description="Clave de servicio de Supabase"
-    )
-    
-    # Qdrant configuration
-    qdrant_url: str = Field(..., description="URL de Qdrant")
-    qdrant_api_key: Optional[str] = Field(None, description="API key de Qdrant")
-    qdrant_collection: str = Field(default="documents", description="Colección por defecto en Qdrant")
-    
-    # Processing configuration
-    default_chunk_size: int = Field(default=512, description="Tamaño de chunk por defecto")
-    default_chunk_overlap: int = Field(default=50, description="Overlap de chunk por defecto")
-    max_file_size_mb: int = Field(default=50, description="Tamaño máximo de archivo en MB")
+    service_version: str = Field(default="2.0.0")
     
     # ==========================================================================
-    # PREPROCESSING CONFIGURATION (NEW)
+    # EXTRACTION SERVICE INTEGRATION
     # ==========================================================================
     
-    # Feature flag - puede venir del frontend en el futuro
-    enable_document_preprocessing: bool = Field(
+    use_extraction_service: bool = Field(
         default=True,
-        description="Habilita preprocesamiento con LLM para enriquecer documentos"
+        description="Delegar extracción al extraction-service"
     )
     
-    # Groq API configuration
-    groq_api_key: Optional[str] = Field(
-        None, 
-        description="API key de Groq para preprocesamiento de documentos"
+    extraction_service_timeout: int = Field(
+        default=300,
+        description="Timeout en segundos para esperar respuesta de extraction"
     )
     
-    # Preprocessing model configuration
-    preprocessing_model: str = Field(
-        default="openai/gpt-oss-120b",
-        description="Modelo LLM a usar para preprocesamiento"
-    )
+    # ==========================================================================
+    # CHUNKING CONFIGURATION
+    # ==========================================================================
     
-    preprocessing_max_tokens_per_block: int = Field(
-        default=3000,
-        description="Tokens máximos por bloque enviado al LLM"
-    )
-    
-    preprocessing_timeout: int = Field(
-        default=120,
-        description="Timeout en segundos para llamadas de preprocessing"
-    )
-    
-    # Chunk size configuration (dynamic chunking)
-    min_chunk_tokens: int = Field(
-        default=256,
-        description="Tamaño mínimo de chunk en tokens"
-    )
-    
-    max_chunk_tokens: int = Field(
-        default=1536,
-        description="Tamaño máximo de chunk en tokens"
-    )
-    
-    target_chunk_tokens: int = Field(
+    default_chunk_size: int = Field(
         default=512,
-        description="Tamaño objetivo de chunk en tokens"
+        gt=0,
+        le=2000,
+        description="Tamaño de chunk por defecto en caracteres"
+    )
+    
+    default_chunk_overlap: int = Field(
+        default=50,
+        ge=0,
+        le=500,
+        description="Overlap entre chunks"
+    )
+    
+    # Chunking jerárquico
+    enable_hierarchical_chunking: bool = Field(
+        default=True,
+        description="Habilitar chunking jerárquico con herencia de secciones"
     )
     
     # ==========================================================================
-    # END PREPROCESSING CONFIGURATION
+    # EMBEDDING CONFIGURATION
     # ==========================================================================
     
-    # WebSocket configuration
-    websocket_ping_interval: int = Field(default=30, description="Intervalo de ping WebSocket")
-    websocket_ping_timeout: int = Field(default=10, description="Timeout de ping WebSocket")
+    embedding_batch_size: int = Field(
+        default=100,
+        gt=0,
+        description="Tamaño de batch para envío a embedding-service"
+    )
     
-    # Worker configuration
-    embedding_callback_worker_enabled: bool = Field(default=True, description="Habilitar worker de callbacks")
-    embedding_callback_worker_count: int = Field(default=1, description="Número de workers")
+    embedding_timeout: int = Field(
+        default=60,
+        description="Timeout para embedding por batch"
+    )
     
-    # Timeouts
-    processing_timeout: int = Field(default=300, description="Timeout para procesamiento (segundos)")
-    embedding_timeout: int = Field(default=60, description="Timeout para embeddings (segundos)")
+    # ==========================================================================
+    # LLM ENRICHMENT CONFIGURATION (solo para balanced/premium)
+    # ==========================================================================
+    
+    enable_llm_enrichment: bool = Field(
+        default=False,
+        description="Habilitar enriquecimiento LLM (search_anchors, atomic_facts)"
+    )
+    
+    llm_enrichment_batch_size: int = Field(
+        default=5,
+        description="Chunks por batch para LLM enrichment"
+    )
+    
+    llm_enrichment_timeout: int = Field(
+        default=30,
+        description="Timeout por chunk para LLM enrichment"
+    )
+    
+    # ==========================================================================
+    # QDRANT CONFIGURATION
+    # ==========================================================================
+    
+    qdrant_host: str = Field(default="qdrant")
+    qdrant_port: int = Field(default=6333)
+    qdrant_api_key: Optional[str] = Field(default=None)
+    qdrant_https: bool = Field(default=False)
+    qdrant_collection_prefix: str = Field(default="nooble_")
+    
+    # Qdrant sparse vectors para BM25
+    enable_sparse_vectors: bool = Field(
+        default=True,
+        description="Habilitar sparse vectors para búsqueda híbrida BM25"
+    )
+    
+    # ==========================================================================
+    # SUPABASE CONFIGURATION
+    # ==========================================================================
+    
+    supabase_url: str = Field(default="")
+    supabase_key: str = Field(default="")
+    supabase_service_key: Optional[str] = Field(default=None)
+    
+    # ==========================================================================
+    # FILE HANDLING
+    # ==========================================================================
+    
+    temp_dir: str = Field(
+        default="/tmp/ingestion",
+        description="Directorio temporal para archivos"
+    )
+    
+    max_file_size_mb: int = Field(
+        default=50,
+        description="Tamaño máximo de archivo en MB"
+    )
+    
+    cleanup_temp_files: bool = Field(
+        default=True,
+        description="Limpiar archivos temporales después de procesar"
+    )
+    
+    # ==========================================================================
+    # WORKER CONFIGURATION
+    # ==========================================================================
+    
+    worker_count: int = Field(
+        default=1,
+        description="Número de workers principales"
+    )
+    
+    callback_worker_count: int = Field(
+        default=1,
+        description="Número de workers para callbacks"
+    )
+    
+    # ==========================================================================
+    # WEBSOCKET CONFIGURATION
+    # ==========================================================================
+    
+    websocket_enabled: bool = Field(
+        default=True,
+        description="Habilitar notificaciones WebSocket"
+    )
+    
+    websocket_heartbeat_interval: int = Field(
+        default=30,
+        description="Intervalo de heartbeat en segundos"
+    )
     
     class Config:
         env_prefix = ""

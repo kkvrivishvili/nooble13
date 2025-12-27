@@ -1,0 +1,27 @@
+# Core dependencies
+pydantic==2.11.7
+pydantic-settings==2.6.0
+
+# Redis client
+redis==5.0.0
+
+# Document Processing - Docling
+docling==2.31.0
+docling-core==2.31.0
+
+# NLP - spaCy
+spacy==3.8.7
+
+# PDF fallback (when Docling fails)
+PyMuPDF==1.24.12
+
+# File handling
+python-magic==0.4.27
+aiofiles==24.1.0
+
+# Utilities
+python-dotenv==1.0.1
+python-json-logger==2.0.7
+
+# Language detection
+langdetect==1.0.9
