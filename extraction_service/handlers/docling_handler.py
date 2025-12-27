@@ -70,6 +70,8 @@ class DoclingHandler(BaseHandler):
             pipeline_options.do_table_structure = True
             
             # Crear converter
+            from docling.document_converter import PdfFormatOption
+            
             self._converter = DocumentConverter(
                 allowed_formats=[
                     InputFormat.PDF,
@@ -77,8 +79,12 @@ class DoclingHandler(BaseHandler):
                     InputFormat.HTML,
                     InputFormat.MD,
                 ],
-                pdf_backend=PyPdfiumDocumentBackend,
-                pipeline_options=pipeline_options
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(
+                        pipeline_options=pipeline_options,
+                        backend=PyPdfiumDocumentBackend
+                    )
+                }
             )
             
             self._logger.info(

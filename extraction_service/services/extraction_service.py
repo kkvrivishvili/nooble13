@@ -120,6 +120,38 @@ class ExtractionService(BaseService):
         # Parsear request
         try:
             request = ExtractionRequest(**action.data)
+            
+            # Validar existencia de archivo
+            file_path = Path(request.file_path)
+            if not file_path.exists():
+                return self._create_error_result(
+                    str(request.task_id),
+                    str(request.document_id),
+                    str(request.tenant_id),
+                    ExtractionError(
+                        error_type="FileNotFoundError",
+                        error_message=f"File not found: {request.file_path}",
+                        stage="validation",
+                        recoverable=False
+                    )
+                )
+                
+            # Validar tamaño de archivo
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            max_size = self.app_settings.max_file_size_mb
+            if file_size_mb > max_size:
+                 return self._create_error_result(
+                    str(request.task_id),
+                    str(request.document_id),
+                    str(request.tenant_id),
+                    ExtractionError(
+                        error_type="FileTooLargeError",
+                        error_message=f"File exceeds max size limit ({file_size_mb:.2f}MB > {max_size}MB)",
+                        stage="validation",
+                        recoverable=False
+                    )
+                )
+                
         except Exception as e:
             self._logger.error(f"Invalid extraction request: {e}")
             return self._create_error_result(
@@ -250,7 +282,7 @@ class ExtractionService(BaseService):
             
             if spacy_error is None:
                 spacy_enrichment = enrichment
-                spacy_model_used = self.spacy_handler._get_model_name(
+                spacy_model_used = self.spacy_handler.get_model_name(
                     enrichment.language, model_size
                 )
                 

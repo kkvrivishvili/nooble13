@@ -57,9 +57,16 @@ class QdrantHandler(BaseHandler):
         self.collection_name = "nooble8_vectors"
         self.vector_size = 1536  # Default OpenAI
         
-        # Inicializar modelo BM25
-        self._logger.info("Initializing SparseTextEmbedding (BM25)...")
-        self.sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm25")
+        # El modelo BM25 se cargará perezosamente para no bloquear el inicio del servicio
+        self._sparse_embedding_model = None
+    
+    @property
+    def sparse_embedding_model(self):
+        """Carga perezosa del modelo SparseTextEmbedding."""
+        if self._sparse_embedding_model is None:
+            self._logger.info("Initializing SparseTextEmbedding (BM25)...")
+            self._sparse_embedding_model = SparseTextEmbedding(model_name="Qdrant/bm25")
+        return self._sparse_embedding_model
     
     async def initialize(self):
         """Asegura que la collection existe con índices para técnicas agnósticas."""

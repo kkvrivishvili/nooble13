@@ -46,7 +46,7 @@ class RAGIngestionConfig(BaseModel):
     
     # Modo de procesamiento
     processing_mode: ProcessingMode = Field(
-        default=ProcessingMode.FAST,
+        default=ProcessingMode.BALANCED,
         description="Modo de procesamiento según tier de suscripción"
     )
     spacy_model_size: SpacyModelSize = Field(

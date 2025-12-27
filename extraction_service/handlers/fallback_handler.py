@@ -47,6 +47,10 @@ class FallbackHandler(BaseHandler):
         """Inicializa el handler de fallback."""
         super().__init__(app_settings)
         self.timeout = app_settings.fallback_timeout
+        
+        # Constantes configurables (o basadas en settings)
+        self.chars_per_page = 3000
+        self.max_sections = 50
     
     @property
     def is_available(self) -> bool:
@@ -255,7 +259,7 @@ class FallbackHandler(BaseHandler):
             sections=sections,
             tables=tables_found,
             tables_count=len(tables_found),
-            page_count=max(1, len(full_text) // 3000),  # Estimación
+            page_count=max(1, len(full_text) // self.chars_per_page),
             word_count=len(full_text.split()),
             char_count=len(full_text)
         )
@@ -263,17 +267,18 @@ class FallbackHandler(BaseHandler):
         return full_text, structure
     
     async def _extract_text(self, path: Path) -> Tuple[str, DocumentStructure]:
-        """Extrae texto plano."""
+        """Extrae texto plano de forma no bloqueante."""
+        loop = asyncio.get_event_loop()
         try:
-            text = path.read_text(encoding='utf-8', errors='ignore')
+            text = await loop.run_in_executor(None, lambda: path.read_text(encoding='utf-8', errors='ignore'))
         except Exception:
-            text = path.read_bytes().decode('utf-8', errors='replace')
+            text = await loop.run_in_executor(None, lambda: path.read_bytes().decode('utf-8', errors='replace'))
         
         sections = self._detect_sections_from_text(text)
         
         structure = DocumentStructure(
             sections=sections,
-            page_count=max(1, len(text) // 3000),
+            page_count=max(1, len(text) // self.chars_per_page),
             word_count=len(text.split()),
             char_count=len(text)
         )
@@ -306,13 +311,15 @@ class FallbackHandler(BaseHandler):
                     if not self.in_script and not self.in_style:
                         self.text.append(data)
             
-            html_content = path.read_text(encoding='utf-8', errors='ignore')
+            loop = asyncio.get_event_loop()
+            html_content = await loop.run_in_executor(None, lambda: path.read_text(encoding='utf-8', errors='ignore'))
             parser = TextExtractor()
             parser.feed(html_content)
             text = ''.join(parser.text)
             
         except Exception:
-            text = path.read_text(encoding='utf-8', errors='ignore')
+            loop = asyncio.get_event_loop()
+            text = await loop.run_in_executor(None, lambda: path.read_text(encoding='utf-8', errors='ignore'))
         
         # Limpiar texto
         text = self._clean_text(text)
@@ -320,7 +327,7 @@ class FallbackHandler(BaseHandler):
         
         structure = DocumentStructure(
             sections=sections,
-            page_count=max(1, len(text) // 3000),
+            page_count=max(1, len(text) // self.chars_per_page),
             word_count=len(text.split()),
             char_count=len(text)
         )
@@ -328,8 +335,9 @@ class FallbackHandler(BaseHandler):
         return text, structure
     
     async def _extract_markdown(self, path: Path) -> Tuple[str, DocumentStructure]:
-        """Extrae texto de Markdown (preservando estructura)."""
-        text = path.read_text(encoding='utf-8', errors='ignore')
+        """Extrae texto de Markdown de forma no bloqueante (preservando estructura)."""
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, lambda: path.read_text(encoding='utf-8', errors='ignore'))
         
         # Parsear secciones de Markdown
         sections = []
@@ -360,7 +368,7 @@ class FallbackHandler(BaseHandler):
         
         structure = DocumentStructure(
             sections=sections,
-            page_count=max(1, len(text) // 3000),
+            page_count=max(1, len(text) // self.chars_per_page),
             word_count=len(text.split()),
             char_count=len(text),
             has_toc=any('contenido' in s.title.lower() or 'index' in s.title.lower() 
@@ -426,7 +434,7 @@ class FallbackHandler(BaseHandler):
             
             char_pos += len(line) + 1
         
-        return sections[:50]  # Limitar a 50 secciones
+        return sections[:self.max_sections]
     
     def _clean_text(self, text: str) -> str:
         """Limpia y normaliza texto."""

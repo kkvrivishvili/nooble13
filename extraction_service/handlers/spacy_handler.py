@@ -85,7 +85,7 @@ class SpacyHandler(BaseHandler):
         """Verifica si spaCy está disponible."""
         return SPACY_AVAILABLE
     
-    def _get_model_name(self, language: str, size: SpacyModelSize) -> str:
+    def get_model_name(self, language: str, size: SpacyModelSize) -> str:
         """Obtiene el nombre del modelo según idioma y tamaño."""
         lang = language if language in self.MODEL_MAP else self.default_language
         return self.MODEL_MAP[lang][size]
@@ -110,6 +110,8 @@ class SpacyHandler(BaseHandler):
             
             if disable_components:
                 self._logger.debug(f"Disabling components: {disable_components}")
+                for comp in disable_components:
+                    nlp.disable_pipe(comp)
             
             # Aumentar límite de texto
             nlp.max_length = self.max_text_length
@@ -138,7 +140,7 @@ class SpacyHandler(BaseHandler):
             Tuple de (código_idioma, confianza)
         """
         if not LANGDETECT_AVAILABLE or not text.strip():
-            return self.default_language, 0.5
+            return self.default_language, 0.0
         
         try:
             # Usar muestra del texto para detección rápida
@@ -199,13 +201,13 @@ class SpacyHandler(BaseHandler):
                 lang_confidence = 1.0
             
             # Obtener modelo
-            model_name = self._get_model_name(language, model_size)
+            model_name = self.get_model_name(language, model_size)
             nlp = self._load_model(model_name)
             
             if nlp is None:
                 # Intentar fallback a modelo medium si large no está
                 if model_size == SpacyModelSize.LARGE:
-                    model_name = self._get_model_name(language, SpacyModelSize.MEDIUM)
+                    model_name = self.get_model_name(language, SpacyModelSize.MEDIUM)
                     nlp = self._load_model(model_name)
                 
                 if nlp is None:

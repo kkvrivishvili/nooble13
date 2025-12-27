@@ -50,12 +50,8 @@ class ExtractionWorker(BaseWorker):
         self.extraction_service = extraction_service
     
     async def initialize(self):
-        """Inicializa el worker y el servicio de extracción."""
-        # Inicializar servicio si no está inicializado
-        if self.extraction_service:
-            await self.extraction_service.initialize()
-        
-        # Llamar inicialización del padre
+        """Inicializa el worker."""
+        # Llamar inicialización del padre (asegura consumidor en Redis)
         await super().initialize()
         
         self.logger.info(

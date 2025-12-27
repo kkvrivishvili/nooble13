@@ -12,7 +12,8 @@ from .extraction_models import (
     SpacyEnrichment,
     EntityInfo,
     ExtractionStatus,
-    ExtractionError
+    ExtractionError,
+    TableInfo
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "SpacyEnrichment",
     "EntityInfo",
     "ExtractionStatus",
-    "ExtractionError"
+    "ExtractionError",
+    "TableInfo"
 ]

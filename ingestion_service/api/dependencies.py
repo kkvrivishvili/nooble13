@@ -88,6 +88,10 @@ async def verify_jwt_token(
             # Por ahora usar user_id como tenant_id
             # TODO: Implementar consulta real a profiles table
             auth_data["app_metadata"]["tenant_id"] = user_info.id
+            
+        # Default tier a "balanced" (Professional) si no existe
+        if not auth_data["app_metadata"].get("tier"):
+            auth_data["app_metadata"]["tier"] = "balanced"
         
         logger.info(
             "JWT verify - success user_id=%s tenant_id=%s email=%s",

@@ -43,6 +43,7 @@ class ExtractionError(BaseModel):
     stage: str = Field(..., description="Etapa donde ocurrió el error")
     recoverable: bool = Field(default=False, description="Si se puede recuperar con fallback")
     details: Optional[Dict[str, Any]] = Field(default=None)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Momento del error")
 
 
 class SectionInfo(BaseModel):
