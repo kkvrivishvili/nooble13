@@ -571,6 +571,7 @@ services:
       - QDRANT_URL=http://${QDRANT_HOST:-qdrant_database}:${QDRANT_HTTP_PORT:-6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
     volumes:
+      - ./query_service:/app/query_service
       - ./common:/app/common:ro
       - ./qdrant_database/.env:/app/.env.qdrant:ro
     env_file:
@@ -656,6 +657,7 @@ services:
       kong:
         condition: service_healthy
     volumes:
+      - ./ingestion_service:/app/ingestion_service
       - ./common:/app/common:ro
       - ./qdrant_database/.env:/app/.env.qdrant:ro
     env_file:
@@ -687,6 +689,7 @@ services:
       redis_database:
         condition: service_healthy
     volumes:
+      - ./conversation_service:/app/conversation_service
       - ./common:/app/common:ro
     env_file:
       - ./.env
@@ -713,6 +716,7 @@ services:
       redis_database:
         condition: service_healthy
     volumes:
+      - ./agent_execution_service:/app/agent_execution_service
       - ./common:/app/common:ro
     env_file:
       - ./.env
@@ -739,6 +743,7 @@ services:
       redis_database:
         condition: service_healthy
     volumes:
+      - ./embedding_service:/app/embedding_service
       - ./common:/app/common:ro
     env_file:
       - ./.env
@@ -748,6 +753,35 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+
+  extraction_service:
+    container_name: extraction-service
+    networks:
+      - nooble-network
+    build:
+      context: .
+      dockerfile: ./extraction_service/Dockerfile
+    # Worker-only service - no HTTP port exposed
+    environment:
+      - REDIS_HOST=redis_database
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    depends_on:
+      redis_database:
+        condition: service_healthy
+    volumes:
+      - ./extraction_service:/app/extraction_service
+      - ./common:/app/common:ro
+    env_file:
+      - ./.env
+    restart: unless-stopped
+    # No HTTP healthcheck - worker monitors Redis streams
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
 networks:
   nooble-network:
     driver: bridge

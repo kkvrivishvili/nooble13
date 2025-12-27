@@ -1,0 +1,39 @@
+# Core FastAPI and Pydantic
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+pydantic==2.11.7
+pydantic-settings==2.6.0
+python-multipart==0.0.12
+
+# File handling
+aiofiles==24.1.0
+
+# Redis client
+redis==5.0.0
+
+# HTTP client for document fetching
+requests==2.32.4
+
+# Supabase
+supabase
+gotrue>=2.0.0
+
+# Vector Database client
+qdrant-client[fastembed]>=1.16.2
+
+# Document Processing - CORE
+PyMuPDF==1.24.12  # Para PDFs (librería fitz) - compatible con pymupdf4llm>=0.0.17
+pymupdf4llm==0.0.17  # Helper avanzado para extracción estructurada de PDFs
+python-docx==1.1.0  # Para archivos DOCX
+chardet==5.2.0  # Detección de encoding
+
+# Document Processing and NLP
+llama-index-core==0.13.0
+llama-index-readers-file==0.5.0  # Compatible con core 0.13.x
+numpy==2.3.1
+spacy==3.8.7
+nltk==3.9.1
+
+# Utilities (often used with common package structure)
+python-dotenv==1.0.1
+python-json-logger==2.0.7

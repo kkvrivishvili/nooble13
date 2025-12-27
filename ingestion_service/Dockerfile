@@ -26,7 +26,7 @@ COPY common/ /app/common/
 ENV PYTHONPATH=/app
 
 # Expose HTTP port for API
-EXPOSE 8003
+EXPOSE 8002
 
 # Define the command to run the service
 CMD ["python", "-m", "ingestion_service.main", "--mode", "full"]

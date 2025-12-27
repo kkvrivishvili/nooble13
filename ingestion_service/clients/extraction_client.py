@@ -73,9 +73,9 @@ class ExtractionClient:
         # Crear DomainAction
         action = DomainAction(
             action_type="extraction.document.process",
-            tenant_id=uuid.UUID(tenant_id),
+            tenant_id=uuid.UUID(str(tenant_id)),
             agent_id=None,  # No hay agente en extracción
-            task_id=uuid.UUID(task_id),
+            task_id=uuid.UUID(str(task_id)),
             session_id=uuid.uuid4(),  # Session dummy
             origin_service="ingestion-service",
             callback_action_type="ingestion.extraction_callback",

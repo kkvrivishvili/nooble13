@@ -3,13 +3,20 @@ Configuración para Ingestion Service.
 Actualizado para soportar delegación a extraction-service.
 """
 from typing import Optional, List
-from pydantic import Field
+from pydantic import Field, AliasChoices
+from pydantic_settings import SettingsConfigDict
 
 from common.config.base_settings import CommonAppSettings
 
 
 class IngestionSettings(CommonAppSettings):
     """Configuración específica para Ingestion Service."""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="",
+        case_sensitive=False,
+        extra="ignore"
+    )
     
     # Service identification
     service_name: str = Field(default="ingestion-service")
@@ -107,9 +114,13 @@ class IngestionSettings(CommonAppSettings):
     # SUPABASE CONFIGURATION
     # ==========================================================================
     
-    supabase_url: str = Field(default="")
-    supabase_key: str = Field(default="")
-    supabase_service_key: Optional[str] = Field(default=None)
+    supabase_url: str = Field(..., description="URL de Supabase")
+    supabase_anon_key: str = Field(
+        ..., 
+        description="Clave anónima de Supabase",
+        validation_alias=AliasChoices("supabase_anon_key", "SUPABASE_ANON_KEY", "supabase_key", "SUPABASE_KEY")
+    )
+    supabase_service_key: Optional[str] = Field(None, description="Clave de servicio de Supabase")
     
     # ==========================================================================
     # FILE HANDLING
@@ -158,6 +169,3 @@ class IngestionSettings(CommonAppSettings):
         description="Intervalo de heartbeat en segundos"
     )
     
-    class Config:
-        env_prefix = ""
-        case_sensitive = False

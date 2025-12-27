@@ -14,6 +14,18 @@ class EmbeddingModel(str, Enum):
     TEXT_EMBEDDING_ADA_002 = "text-embedding-ada-002"
 
 
+class ProcessingMode(str, Enum):
+    """Modos de procesamiento según tier de suscripción."""
+    FAST = "fast"           # Docling + spaCy md (Free)
+    BALANCED = "balanced"   # Docling + spaCy lg + LLM selectivo (Pro)
+    PREMIUM = "premium"     # Docling + spaCy lg + LLM completo (Enterprise)
+
+
+class SpacyModelSize(str, Enum):
+    """Tamaño del modelo spaCy a usar."""
+    MEDIUM = "md"   # ~92MB, más rápido
+    LARGE = "lg"    # ~549MB, más preciso
+
 class ChatModel(str, Enum):
     """Modelos de chat soportados en Groq."""
     LLAMA3_8B = "llama-3.1-8b-instant"

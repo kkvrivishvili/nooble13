@@ -17,16 +17,23 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from qdrant_client import AsyncQdrantClient
 
 from common.clients.redis.redis_manager import RedisManager
 from common.utils.logging import init_logging
 from common.clients.base_redis_client import BaseRedisClient
+from common.supabase.client import SupabaseClient
 
 from .config.settings import IngestionSettings
 from .services.ingestion_service import IngestionService
+from .clients.embedding_client import EmbeddingClient
+from .websocket.ingestion_websocket_manager import IngestionWebSocketManager
 from .workers.ingestion_worker import IngestionWorker
 from .workers.extraction_callback_worker import ExtractionCallbackWorker
 from .workers.embedding_callback_worker import EmbeddingCallbackWorker
+from .api import ingestion_router, websocket_router, health_router
+from .api.dependencies import set_dependencies
 
 # Configuración global
 settings = IngestionSettings()
@@ -36,14 +43,15 @@ logger = logging.getLogger(__name__)
 # Variables globales
 redis_manager: Optional[RedisManager] = None
 ingestion_service: Optional[IngestionService] = None
+websocket_manager: Optional[IngestionWebSocketManager] = None
+qdrant_client: Optional[AsyncQdrantClient] = None
 workers: List = []
 worker_tasks: List[asyncio.Task] = []
 shutdown_event = asyncio.Event()
 
 
 async def startup():
-    """Inicializa el servicio y sus componentes."""
-    global redis_manager, ingestion_service, workers, worker_tasks
+    global redis_manager, ingestion_service, websocket_manager, qdrant_client, workers, worker_tasks
     
     logger.info(f"--- [STARTUP] Initializing {settings.service_name} v{settings.service_version} ---")
     
@@ -60,16 +68,54 @@ async def startup():
             settings=settings
         )
         
-        # 3. Inicializar servicio de ingestion
+        # 3. Inicializar Supabase
+        logger.info("[STARTUP] Initializing Supabase...")
+        supabase_client = SupabaseClient(
+            url=settings.supabase_url,
+            anon_key=settings.supabase_anon_key,
+            service_key=settings.supabase_service_key,
+            app_settings=settings
+        )
+        
+        # 4. Inicializar Qdrant
+        logger.info("[STARTUP] Initializing Qdrant...")
+        qdrant_client = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key
+        )
+        
+        # 5. Inicializar clientes
+        embedding_client = EmbeddingClient(base_redis_client)
+        
+        # 6. Inicializar servicio de ingestion
         logger.info("[STARTUP] Initializing IngestionService...")
         ingestion_service = IngestionService(
             app_settings=settings,
             service_redis_client=base_redis_client,
-            direct_redis_conn=redis_client
+            direct_redis_conn=redis_client,
+            supabase_client=supabase_client,
+            qdrant_client=qdrant_client,
+            embedding_client=embedding_client
         )
         await ingestion_service.initialize()
         
-        # 4. Inicializar workers principales
+        # 7. Inicializar WebSocket Manager
+        logger.info("[STARTUP] Initializing WebSocket Manager...")
+        websocket_manager = IngestionWebSocketManager(
+            app_settings=settings,
+            supabase_client=supabase_client
+        )
+        ingestion_service.set_websocket_manager(websocket_manager)
+        
+        # 8. Configurar dependencias para API
+        set_dependencies(
+            ingestion_service=ingestion_service,
+            websocket_manager=websocket_manager,
+            settings=settings,
+            supabase_client=supabase_client
+        )
+        
+        # 9. Inicializar workers principales
         logger.info(f"[STARTUP] Starting {settings.worker_count} ingestion worker(s)...")
         for i in range(settings.worker_count):
             worker = IngestionWorker(
@@ -154,13 +200,13 @@ async def shutdown():
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
     
-    # 3. Cerrar Redis
-    if redis_manager:
+    # 4. Cerrar Qdrant
+    if qdrant_client:
         try:
-            await redis_manager.close()
+            await qdrant_client.close()
         except Exception as e:
-            logger.error(f"Error closing Redis: {e}")
-    
+            logger.error(f"Error closing Qdrant: {e}")
+            
     logger.info(f"--- [SHUTDOWN] {settings.service_name} stopped ---")
 
 
@@ -184,29 +230,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configurar CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": settings.service_name,
-        "version": settings.service_version,
-        "workers_count": len(workers)
-    }
-
-
-@app.get("/status/{task_id}")
-async def get_task_status(task_id: str):
-    """Obtiene estado de una tarea de ingestion."""
-    if not ingestion_service:
-        return {"error": "Service not initialized"}
-    
-    status = await ingestion_service.get_task_status(task_id)
-    if status is None:
-        return {"error": "Task not found", "task_id": task_id}
-    
-    return status
+# Incluir rutas
+app.include_router(health_router, prefix="/health", tags=["health"])
+app.include_router(ingestion_router, prefix="/api/v1", tags=["ingestion"])
+app.include_router(websocket_router, tags=["websocket"])
 
 
 # =============================================================================
@@ -248,7 +284,7 @@ def main():
         help="Modo de ejecución: api (solo HTTP), workers (solo workers), full (ambos)"
     )
     parser.add_argument("--host", default="0.0.0.0", help="Host para API")
-    parser.add_argument("--port", type=int, default=8003, help="Puerto para API")
+    parser.add_argument("--port", type=int, default=8002, help="Puerto para API")
     
     args = parser.parse_args()
     
