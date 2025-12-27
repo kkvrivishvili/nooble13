@@ -10,6 +10,7 @@ import time
 import re
 from pathlib import Path
 from typing import Tuple, Optional, List
+import asyncio
 
 from common.handlers.base_handler import BaseHandler
 from ..config.settings import ExtractionSettings

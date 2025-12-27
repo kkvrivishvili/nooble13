@@ -8,7 +8,7 @@ Define las estructuras de datos para:
 - Enriquecimiento spaCy
 """
 
-import uuid
+# import uuid (removed)
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Dict, Any

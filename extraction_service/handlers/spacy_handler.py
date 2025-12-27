@@ -116,6 +116,13 @@ class SpacyHandler(BaseHandler):
             # Aumentar límite de texto
             nlp.max_length = self.max_text_length
             
+            # Limitar caché de modelos (máximo 2 modelos) para evitar memory leaks
+            if len(self._loaded_models) >= 2:
+                # Eliminar el primer modelo cargado (FIFO simple)
+                oldest_model = next(iter(self._loaded_models))
+                self._logger.info("Evicting spacy model from cache: %s", oldest_model)
+                del self._loaded_models[oldest_model]
+                
             self._loaded_models[model_name] = nlp
             
             elapsed = time.time() - start

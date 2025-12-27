@@ -129,7 +129,8 @@ def handle_signal(signum, frame):
 async def main():
     """Función principal del servicio."""
     # Configurar handlers de señales
-    signal.signal(signal.SIGTERM, handle_signal)
+    if sys.platform != "win32":
+        signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
     
     try:

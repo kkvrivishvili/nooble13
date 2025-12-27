@@ -2,7 +2,7 @@
 Configuración para Extraction Service.
 Extiende CommonAppSettings con configuraciones específicas.
 """
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from pydantic import Field
 
 from common.config.base_settings import CommonAppSettings
@@ -124,7 +124,7 @@ class ExtractionSettings(CommonAppSettings):
         description="Idioma por defecto si no se detecta"
     )
     
-    supported_languages: list = Field(
+    supported_languages: List[str] = Field(
         default=["es", "en"],
         description="Idiomas soportados para procesamiento"
     )

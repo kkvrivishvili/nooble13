@@ -153,7 +153,7 @@ class ExtractionService(BaseService):
                 )
                 
         except Exception as e:
-            self._logger.error(f"Invalid extraction request: {e}")
+            self._logger.error("Invalid extraction request: %s", e)
             return self._create_error_result(
                 action.data.get("task_id", "unknown"),
                 action.data.get("document_id", "unknown"),
@@ -167,13 +167,14 @@ class ExtractionService(BaseService):
             )
         
         self._logger.info(
-            f"Starting extraction",
+            "Starting extraction",
             extra={
-                "task_id": request.task_id,
-                "document_id": request.document_id,
+                "task_id": str(request.task_id),
+                "document_id": str(request.document_id),
                 "document_type": request.document_type,
                 "document_name": request.document_name,
-                "processing_mode": request.processing_mode.value
+                "processing_mode": request.processing_mode.value,
+                "correlation_id": str(action.correlation_id) if action.correlation_id else None
             }
         )
         
@@ -213,7 +214,7 @@ class ExtractionService(BaseService):
                     f"Docling failed ({error.error_message}), trying fallback..."
                 )
             else:
-                self._logger.error(f"Docling failed: {error}")
+                self._logger.error("Docling failed: %s", error)
         
         # ================================================================
         # PASO 2: Fallback si Docling falló
@@ -236,7 +237,7 @@ class ExtractionService(BaseService):
                     extra={"word_count": structure.word_count}
                 )
             elif error:
-                self._logger.error(f"Fallback also failed: {error}")
+                self._logger.error("Fallback also failed: %s", error)
                 return self._create_error_result(
                     request.task_id,
                     request.document_id,
@@ -272,7 +273,7 @@ class ExtractionService(BaseService):
             model_size = self._get_spacy_model_size(request.processing_mode, request.spacy_model_size)
             
             self._logger.info(
-                f"Starting spaCy enrichment with model size: {model_size.value}"
+                "Starting spaCy enrichment with model size: %s", model_size.value
             )
             
             enrichment, spacy_error = await self.spacy_handler.enrich_text(

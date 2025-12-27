@@ -22,10 +22,10 @@ from ..models.extraction_models import (
 
 # Imports de Docling
 try:
-    from docling.document_converter import DocumentConverter
+    from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+    # Remover import de backend si no es necesario o es incorrecto
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
@@ -69,20 +69,11 @@ class DoclingHandler(BaseHandler):
             pipeline_options.do_ocr = self.enable_ocr
             pipeline_options.do_table_structure = True
             
-            # Crear converter
-            from docling.document_converter import PdfFormatOption
-            
+            # Crear converter (versión 2.31.0)
             self._converter = DocumentConverter(
-                allowed_formats=[
-                    InputFormat.PDF,
-                    InputFormat.DOCX,
-                    InputFormat.HTML,
-                    InputFormat.MD,
-                ],
                 format_options={
                     InputFormat.PDF: PdfFormatOption(
-                        pipeline_options=pipeline_options,
-                        backend=PyPdfiumDocumentBackend
+                        pipeline_options=pipeline_options
                     )
                 }
             )
@@ -208,6 +199,9 @@ class DoclingHandler(BaseHandler):
         Conversión síncrona del documento (ejecutada en thread pool).
         """
         try:
+            # En Docling v2, algunas opciones se pasan al convert() o están en el pipeline
+            # Si no hay forma directa de limitar páginas en convert(), Docling suele procesar todo
+            # pero algunas versiones permiten configurar el backend.
             result = self._converter.convert(str(path))
             return result
         except Exception as e:
